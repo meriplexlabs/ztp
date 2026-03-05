@@ -1,0 +1,234 @@
+{
+  // ─── Kea DHCP4 — ZTP Server ─────────────────────────────────────────────────
+  // Key things to configure before deploying:
+  //   1. Subnet / pool to match your management network
+  //   2. "routers" (gateway IP)
+  //   3. ZTP_SERVER_IP — IP of this server, sent to devices as TFTP server + PnP target
+  //   4. KEA_DHCP_INTERFACE — set via env var (entrypoint substitution)
+  //
+  // Vendor classification observations from packet captures:
+  //   Cisco    → option 60 = "ciscopnp" (exact, lowercase)
+  //              option 61 = serial number (e.g. FOC264437SK), type 0
+  //   Juniper  → option 60 = "Juniper-<model>-<serial>" (serial embedded!)
+  //              option 12 = serial number
+  //   Aruba/HP → option 60 = "HP <model> <desc> dslforum.org" for ProCurve/AOS
+  //              option 60 = "Aruba..." for AOS-CX
+  //   Extreme  → option 60 NOT SENT — match by MAC OUI (00:04:96 or 00:e0:2b)
+  //   Fortinet → option 60 = "Fortinet..." (unconfirmed, adjust if different)
+
+  "Dhcp4": {
+    "interfaces-config": {
+      "interfaces": ["${KEA_DHCP_INTERFACE}"],
+      "dhcp-socket-type": "raw"
+    },
+
+    "lease-database": {
+      "type": "postgresql",
+      "host": "${POSTGRES_HOST}",
+      "port": ${POSTGRES_PORT},
+      "name": "${POSTGRES_DB}",
+      "user": "${POSTGRES_USER}",
+      "password": "${POSTGRES_PASSWORD}"
+    },
+
+    "hosts-database": {
+      "type": "postgresql",
+      "host": "${POSTGRES_HOST}",
+      "port": ${POSTGRES_PORT},
+      "name": "${POSTGRES_DB}",
+      "user": "${POSTGRES_USER}",
+      "password": "${POSTGRES_PASSWORD}"
+    },
+
+    "valid-lifetime": 600,
+    "renew-timer": 200,
+    "rebind-timer": 400,
+
+    // Redefine option 43 as a plain string so we can send Cisco PnP text directly.
+    // (Kea's built-in type for 43 is binary, which requires hex encoding.)
+    "option-def": [
+      {
+        "name": "vendor-encapsulated-options",
+        "code": 43,
+        "type": "string",
+        "space": "dhcp4"
+      }
+    ],
+
+    "client-classes": [
+
+      // ── Cisco ────────────────────────────────────────────────────────────────
+      // option 60 = exactly "ciscopnp" (lowercase, confirmed from capture)
+      // option 61 contains the serial number (type 0, not hardware-type).
+      //
+      // Option 43 Cisco PnP format: "5A1N;B2;K4;I<server>;J<port>"
+      //   5A   = Cisco PnP sub-type identifier
+      //   1N   = instance 1, non-secure
+      //   B2   = HTTP (B3 = HTTPS)
+      //   K4   = keepalive interval
+      //   I... = ZTP API server IP or hostname
+      //   J... = port (8080 = our Go API)
+      //
+      // The Cisco PnP agent will call: http://<server>:8080/pnp/HELLO
+      // and negotiate config delivery via the PnP protocol.
+      // For simple HTTP ZTP (no PnP), remove option 43 and use option 67 only.
+      {
+        "name": "vendor-cisco",
+        "test": "option[60].hex == 'ciscopnp'",
+        "option-data": [
+          {
+            "name": "tftp-server-name",
+            "data": "${ZTP_SERVER_IP}"
+          },
+          {
+            "name": "boot-file-name",
+            "data": "cisco/autoinstall.py"
+          },
+          {
+            // Cisco PnP discovery redirect — points device at the ZTP API server
+            // Change ${ZTP_SERVER_IP} to the IP of this server
+            "name": "vendor-encapsulated-options",
+            "data": "5A1N;B2;K4;I${ZTP_SERVER_IP};J8080",
+            "always-send": true
+          }
+        ]
+      },
+
+      // ── Juniper ──────────────────────────────────────────────────────────────
+      // option 60 = "Juniper-<model>-<serial>"
+      //   e.g. "Juniper-ex3400-24p-NW3620490200"
+      //   The serial is the last hyphen-delimited segment.
+      //   option 12 (hostname) also = serial number.
+      //
+      // Juniper ZTP (DHCP-based) uses option 66 + 67 to fetch a Junos config
+      // file via TFTP or HTTP. The Go API serves it at /api/v1/config/<serial>.
+      {
+        "name": "vendor-juniper",
+        "test": "substring(option[60].hex, 0, 7) == 'Juniper'",
+        "option-data": [
+          {
+            "name": "tftp-server-name",
+            "data": "${ZTP_SERVER_IP}"
+          },
+          {
+            "name": "boot-file-name",
+            "data": "juniper/ztp.conf"
+          }
+        ]
+      },
+
+      // ── Aruba / HP ProCurve ───────────────────────────────────────────────────
+      // ProCurve / AOS (old): option 60 starts with "HP "
+      //   e.g. "HP J9729A 2920-48G-POE+ Switch dslforum.org"
+      // AOS-CX (new): option 60 starts with "Aruba"
+      //
+      // HP/Aruba uses option 66 + 67 for TFTP-based autoinstall.
+      {
+        "name": "vendor-aruba",
+        "test": "substring(option[60].hex, 0, 3) == 'HP ' or substring(option[60].hex, 0, 5) == 'Aruba'",
+        "option-data": [
+          {
+            "name": "tftp-server-name",
+            "data": "${ZTP_SERVER_IP}"
+          },
+          {
+            "name": "boot-file-name",
+            "data": "aruba/autoinstall.cfg"
+          }
+        ]
+      },
+
+      // ── Extreme Networks ──────────────────────────────────────────────────────
+      // Extreme ExtremeXOS switches do NOT send option 60.
+      // Match by MAC OUI instead:
+      //   00:04:96  — most Summit/X-series (ExtremeXOS)
+      //   00:e0:2b  — older Summit/BlackDiamond
+      //
+      // Extreme already sends option 66 + 67 with empty values in the DISCOVER,
+      // explicitly requesting them. We fill them in here.
+      {
+        "name": "vendor-extreme",
+        "test": "substring(hexstring(pkt4.mac, ':'), 0, 8) == '00:04:96' or substring(hexstring(pkt4.mac, ':'), 0, 8) == '00:e0:2b'",
+        "option-data": [
+          {
+            "name": "tftp-server-name",
+            "data": "${ZTP_SERVER_IP}"
+          },
+          {
+            "name": "boot-file-name",
+            "data": "extreme/autoinstall.xsf"
+          }
+        ]
+      },
+
+      // ── Fortinet ─────────────────────────────────────────────────────────────
+      // FortiSwitch option 60 typically starts with "Fortinet" or "FortiSwitch".
+      // Update the prefix if you observe a different value in a capture.
+      {
+        "name": "vendor-fortinet",
+        "test": "substring(option[60].hex, 0, 8) == 'Fortinet' or substring(option[60].hex, 0, 11) == 'FortiSwitch'",
+        "option-data": [
+          {
+            "name": "tftp-server-name",
+            "data": "${ZTP_SERVER_IP}"
+          },
+          {
+            "name": "boot-file-name",
+            "data": "fortinet/autoinstall.conf"
+          }
+        ]
+      }
+
+    ],
+
+    "subnet4": [
+      {
+        "id": 1,
+        // ── Update these to match your management network ──────────────────
+        "subnet": "192.168.25.0/24",
+        "pools": [
+          { "pool": "192.168.25.100 - 192.168.25.200" }
+        ],
+        // ─────────────────────────────────────────────────────────────────
+        "option-data": [
+          { "name": "routers",             "data": "192.168.25.1"  },
+          { "name": "domain-name-servers", "data": "192.168.25.1"  },
+          { "name": "domain-name",         "data": "ztp.local"    }
+          // Note: tftp-server-name (option 66) and boot-file-name (option 67)
+          // are intentionally NOT set at the subnet level.
+          // Each vendor class sets its own — a subnet-level value would
+          // override or conflict with class-level values in some Kea versions.
+        ],
+        "reservations-global": false,
+        "reservations-in-subnet": true
+      }
+    ],
+
+    "hooks-libraries": [
+      {
+        // lease4-get-all, lease4-get-by-hw-address, etc.
+        "library": "/usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp_lease_cmds.so"
+      },
+      {
+        // statistic-get-all — used by the dashboard leases page
+        "library": "/usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp_stat_cmds.so"
+      }
+    ],
+
+    "loggers": [
+      {
+        "name": "kea-dhcp4",
+        "output-options": [
+          { "output": "stdout" }
+        ],
+        "severity": "INFO",
+        "debuglevel": 0
+      }
+    ],
+
+    "control-socket": {
+      "socket-type": "unix",
+      "socket-name": "/var/run/kea/kea-dhcp4-ctrl.sock"
+    }
+  }
+}

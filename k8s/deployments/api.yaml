@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: ztp
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: api }
+  template:
+    metadata:
+      labels: { app: api }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534   # distroless nonroot uid
+      containers:
+        - name: api
+          image: ztp/api:latest
+          envFrom:
+            - configMapRef: { name: ztp-config }
+            - secretRef:    { name: ztp-secrets }
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet: { path: /health, port: 8080 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits:   { cpu: 500m, memory: 256Mi }

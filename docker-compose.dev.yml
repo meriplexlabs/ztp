@@ -1,0 +1,51 @@
+name: ztp
+
+# Development overrides — used with: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+# Or via: make dev
+
+services:
+  postgres:
+    ports:
+      - "5432:5432"   # Expose postgres port for local tools (DBeaver, etc.)
+
+  renderer:
+    build:
+      context: ./services/renderer
+      dockerfile: Dockerfile
+    volumes:
+      - ./services/renderer:/app        # Hot-reload: mount source
+      - ./configs:/templates:ro
+    command: uvicorn app:app --host 0.0.0.0 --port 8001 --reload
+
+  api:
+    build:
+      context: ./services/dashboard/api
+      dockerfile: Dockerfile.dev        # Uses Air for hot-reload
+    volumes:
+      - ./services/dashboard/api:/app   # Hot-reload: mount source
+      - go_cache:/root/.cache/go
+    environment:
+      GO_ENV: development
+
+  ui:
+    build:
+      context: ./services/dashboard/ui
+      dockerfile: Dockerfile.dev        # Runs Vite dev server
+    volumes:
+      - ./services/dashboard/ui:/app
+      - ui_node_modules:/app/node_modules
+    ports:
+      - "5173:5173"   # Vite HMR port
+    environment:
+      VITE_API_URL: http://localhost:8080
+
+  syslog:
+    build:
+      context: ./services/syslog
+      dockerfile: Dockerfile
+    volumes:
+      - ./services/syslog:/app
+
+volumes:
+  go_cache:
+  ui_node_modules:

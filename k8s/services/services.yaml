@@ -1,0 +1,112 @@
+---
+# PostgreSQL — ClusterIP, internal only
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: ztp
+spec:
+  selector: { app: postgres }
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+# Python Renderer — ClusterIP
+apiVersion: v1
+kind: Service
+metadata:
+  name: renderer
+  namespace: ztp
+spec:
+  selector: { app: renderer }
+  ports:
+    - port: 8001
+      targetPort: 8001
+---
+# Dashboard API — ClusterIP (exposed via Ingress)
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  namespace: ztp
+spec:
+  selector: { app: api }
+  ports:
+    - port: 8080
+      targetPort: 8080
+---
+# Dashboard UI — ClusterIP (exposed via Ingress)
+apiVersion: v1
+kind: Service
+metadata:
+  name: ui
+  namespace: ztp
+spec:
+  selector: { app: ui }
+  ports:
+    - port: 80
+      targetPort: 80
+---
+# Kea Control Agent — ClusterIP (internal, proxied through API)
+apiVersion: v1
+kind: Service
+metadata:
+  name: kea-ctrl-agent
+  namespace: ztp
+spec:
+  selector: { app: kea-ctrl-agent }
+  ports:
+    - port: 8000
+      targetPort: 8000
+---
+# TFTP — LoadBalancer (UDP, must be reachable on LAN)
+apiVersion: v1
+kind: Service
+metadata:
+  name: tftp
+  namespace: ztp
+spec:
+  type: LoadBalancer
+  selector: { app: tftp }
+  ports:
+    - port: 69
+      targetPort: 69
+      protocol: UDP
+---
+# Syslog — LoadBalancer (UDP+TCP, must be reachable from devices)
+apiVersion: v1
+kind: Service
+metadata:
+  name: syslog
+  namespace: ztp
+spec:
+  type: LoadBalancer
+  selector: { app: syslog }
+  ports:
+    - name: syslog-udp
+      port: 514
+      targetPort: 514
+      protocol: UDP
+    - name: syslog-tcp
+      port: 514
+      targetPort: 514
+      protocol: TCP
+---
+# DNS (BIND) — LoadBalancer
+apiVersion: v1
+kind: Service
+metadata:
+  name: bind
+  namespace: ztp
+spec:
+  type: LoadBalancer
+  selector: { app: bind }
+  ports:
+    - name: dns-udp
+      port: 53
+      targetPort: 53
+      protocol: UDP
+    - name: dns-tcp
+      port: 53
+      targetPort: 53
+      protocol: TCP

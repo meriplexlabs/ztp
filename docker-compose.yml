@@ -1,0 +1,214 @@
+name: ztp
+
+# ─── Shared healthcheck defaults ──────────────────────────────────────────────
+x-healthcheck-defaults: &healthcheck-defaults
+  interval: 30s
+  timeout: 10s
+  retries: 5
+  start_period: 30s
+
+services:
+  # ─── PostgreSQL ──────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ztp}
+      POSTGRES_USER: ${POSTGRES_USER:-ztp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./services/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ztp} -d ${POSTGRES_DB:-ztp}"]
+    networks:
+      - ztp-internal
+    # Postgres official image already runs as the postgres user (uid 70)
+
+  # ─── Kea DHCP ────────────────────────────────────────────────────────────────
+  kea:
+    build:
+      context: ./services/kea
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    # Must use host networking to receive broadcast DHCP packets
+    network_mode: host
+    cap_add:
+      - NET_BIND_SERVICE
+    environment:
+      POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_DB: ${POSTGRES_DB:-ztp}
+      POSTGRES_USER: ${POSTGRES_USER:-ztp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      KEA_DHCP_INTERFACE: ${KEA_DHCP_INTERFACE:-eth0}
+      ZTP_SERVER_IP: ${ZTP_SERVER_IP:-127.0.0.1}
+    volumes:
+      - ./services/kea/config:/etc/kea:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/ || exit 1"]
+
+  # ─── BIND DNS ────────────────────────────────────────────────────────────────
+  bind:
+    build:
+      context: ./services/bind
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    cap_add:
+      - NET_BIND_SERVICE
+    environment:
+      BIND_FORWARDER: ${BIND_FORWARDER:-8.8.8.8}
+      ZTP_DOMAIN: ${ZTP_DOMAIN:-ztp.local}
+    volumes:
+      - ./services/bind/config:/etc/bind:ro
+      - bind_data:/var/cache/bind
+    ports:
+      - "53:53/udp"
+      - "53:53/tcp"
+    networks:
+      - ztp-internal
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD-SHELL", "named-checkconf /etc/bind/named.conf && echo ok"]
+
+  # ─── TFTP ────────────────────────────────────────────────────────────────────
+  tftp:
+    build:
+      context: ./services/tftp
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    cap_add:
+      - NET_BIND_SERVICE
+    environment:
+      TFTP_ROOT: /tftpboot
+    volumes:
+      - ./services/tftp/tftpboot:/tftpboot:ro
+    ports:
+      - "69:69/udp"
+    networks:
+      - ztp-internal
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD-SHELL", "pgrep tftpd || exit 1"]
+
+  # ─── Python Renderer ─────────────────────────────────────────────────────────
+  renderer:
+    build:
+      context: ./services/renderer
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      RENDERER_PORT: ${RENDERER_PORT:-8001}
+      POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_DB: ${POSTGRES_DB:-ztp}
+      POSTGRES_USER: ${POSTGRES_USER:-ztp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      TEMPLATE_DIR: /templates
+    volumes:
+      - ./configs:/templates:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8001:8001"
+    networks:
+      - ztp-internal
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=5)"]
+
+  # ─── Syslog Receiver ─────────────────────────────────────────────────────────
+  syslog:
+    build:
+      context: ./services/syslog
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    cap_add:
+      - NET_BIND_SERVICE
+    environment:
+      POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_DB: ${POSTGRES_DB:-ztp}
+      POSTGRES_USER: ${POSTGRES_USER:-ztp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      SYSLOG_UDP_PORT: ${SYSLOG_UDP_PORT:-514}
+      SYSLOG_TCP_PORT: ${SYSLOG_TCP_PORT:-514}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "514:514/udp"
+      - "514:514/tcp"
+    networks:
+      - ztp-internal
+    healthcheck:
+      disable: true
+
+  # ─── Dashboard API (Go) ───────────────────────────────────────────────────────
+  api:
+    build:
+      context: ./services/dashboard/api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      API_PORT: ${API_PORT:-8080}
+      POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_DB: ${POSTGRES_DB:-ztp}
+      POSTGRES_USER: ${POSTGRES_USER:-ztp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      JWT_SECRET: ${JWT_SECRET:-change-this-secret}
+      JWT_EXPIRY: ${JWT_EXPIRY:-24h}
+      OIDC_ENABLED: ${OIDC_ENABLED:-false}
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      OIDC_REDIRECT_URL: ${OIDC_REDIRECT_URL:-}
+      RENDERER_URL: ${RENDERER_URL:-http://renderer:8001}
+      KEA_CTRL_AGENT_URL: ${KEA_CTRL_AGENT_URL:-http://localhost:8000}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      renderer:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    networks:
+      - ztp-internal
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+
+  # ─── Dashboard UI (React/Nginx) ───────────────────────────────────────────────
+  ui:
+    build:
+      context: ./services/dashboard/ui
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8080}
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "3000:80"
+    networks:
+      - ztp-internal
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD-SHELL", "curl -sf http://localhost/ || exit 1"]
+
+# ─── Volumes ──────────────────────────────────────────────────────────────────
+volumes:
+  postgres_data:
+  bind_data:
+
+# ─── Networks ─────────────────────────────────────────────────────────────────
+networks:
+  ztp-internal:
+    driver: bridge

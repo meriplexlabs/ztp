@@ -1,0 +1,65 @@
+# Kea DHCP must use hostNetwork to receive broadcast DHCP packets.
+# Use DaemonSet so it runs on every node that should serve DHCP.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: kea
+  namespace: ztp
+spec:
+  selector:
+    matchLabels: { app: kea }
+  template:
+    metadata:
+      labels: { app: kea }
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: kea
+          image: ztp/kea:latest
+          envFrom:
+            - configMapRef: { name: ztp-config }
+            - secretRef:    { name: ztp-secrets }
+          securityContext:
+            capabilities:
+              add: [NET_BIND_SERVICE]
+            runAsUser: 101    # kea uid
+          volumeMounts:
+            - { name: kea-config, mountPath: /etc/kea, readOnly: true }
+      volumes:
+        - name: kea-config
+          configMap: { name: kea-config }
+---
+# Separate deployment for the Kea Control Agent (HTTP API, no host network needed)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kea-ctrl-agent
+  namespace: ztp
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: kea-ctrl-agent }
+  template:
+    metadata:
+      labels: { app: kea-ctrl-agent }
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+        - name: kea-ctrl-agent
+          image: ztp/kea:latest
+          command: ["kea-ctrl-agent", "-c", "/etc/kea/kea-ctrl-agent.json"]
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef: { name: ztp-config }
+          volumeMounts:
+            - { name: kea-config, mountPath: /etc/kea, readOnly: true }
+      volumes:
+        - name: kea-config
+          configMap: { name: kea-config }

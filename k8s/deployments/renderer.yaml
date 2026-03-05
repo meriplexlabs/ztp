@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: renderer
+  namespace: ztp
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: renderer }
+  template:
+    metadata:
+      labels: { app: renderer }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: renderer
+          image: ztp/renderer:latest
+          envFrom:
+            - configMapRef: { name: ztp-config }
+            - secretRef:    { name: ztp-secrets }
+          ports:
+            - containerPort: 8001
+          volumeMounts:
+            - { name: templates, mountPath: /templates, readOnly: true }
+          readinessProbe:
+            httpGet: { path: /health, port: 8001 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits:   { cpu: 200m, memory: 256Mi }
+      volumes:
+        - name: templates
+          configMap: { name: config-templates }

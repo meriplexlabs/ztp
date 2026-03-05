@@ -1,0 +1,38 @@
+# Environment
+.env
+docker-compose.override.yml
+
+# Go
+services/dashboard/api/bin/
+services/syslog/bin/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+services/renderer/.venv/
+
+# Node
+node_modules/
+services/dashboard/ui/node_modules/
+services/dashboard/ui/dist/
+
+# Database
+*.sql.bak
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Secrets / certs
+*.pem
+*.key
+*.crt
+*.p12

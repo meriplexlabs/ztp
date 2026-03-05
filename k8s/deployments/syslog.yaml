@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: syslog
+  namespace: ztp
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: syslog }
+  template:
+    metadata:
+      labels: { app: syslog }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+      containers:
+        - name: syslog
+          image: ztp/syslog:latest
+          envFrom:
+            - configMapRef: { name: ztp-config }
+            - secretRef:    { name: ztp-secrets }
+          ports:
+            - { containerPort: 514, protocol: UDP }
+            - { containerPort: 514, protocol: TCP }
+          securityContext:
+            capabilities:
+              add: [NET_BIND_SERVICE]
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits:   { cpu: 100m, memory: 128Mi }
