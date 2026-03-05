@@ -19,7 +19,7 @@
   "Dhcp4": {
     "interfaces-config": {
       "interfaces": ["${KEA_DHCP_INTERFACE}"],
-      "dhcp-socket-type": "raw"
+      "dhcp-socket-type": "udp"
     },
 
     "lease-database": {
@@ -200,7 +200,15 @@
           // override or conflict with class-level values in some Kea versions.
         ],
         "reservations-global": false,
-        "reservations-in-subnet": true
+        "reservations-in-subnet": true,
+
+        // ── DHCP relay ────────────────────────────────────────────────────
+        // giaddr set by the relay agent — typically the switch's SVI IP on
+        // the management VLAN (192.168.25.1). Kea uses this to match the
+        // relayed packet to this subnet.
+        "relay": {
+          "ip-addresses": ["192.168.25.1"]
+        }
       }
     ],
 
