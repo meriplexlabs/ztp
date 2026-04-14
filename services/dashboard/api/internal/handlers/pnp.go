@@ -182,7 +182,7 @@ func (h *PnPHandler) handleWorkRequestForDevice(w http.ResponseWriter, r *http.R
 
 	w.Header().Set("Content-Type", "text/xml; charset=utf-8")
 
-	if device.ProfileID != nil {
+	if device.ProfileID != nil && device.Status != models.StatusProvisioned {
 		// Tell the switch to fetch config from our ZTP config endpoint
 		scheme := "http"
 		configURL := fmt.Sprintf("%s://%s/api/v1/config/%s", scheme, r.Host, serial)
