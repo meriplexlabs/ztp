@@ -1,0 +1,18 @@
+$TTL 300
+@   IN  SOA ns1.${ZTP_DOMAIN:-meriplexlabs.com}. admin.${ZTP_DOMAIN:-meriplexlabs.com}. (
+        2024010101  ; Serial
+        3600        ; Refresh
+        900         ; Retry
+        604800      ; Expire
+        300         ; Minimum TTL
+    )
+
+; Name servers
+@       IN  NS  ns1.${ZTP_DOMAIN:-meriplexlabs.com}.
+
+; Service A records
+ns1         IN  A   ${ZTP_SERVER_IP}
+ztp         IN  A   ${ZTP_SERVER_IP}
+api         IN  A   ${ZTP_SERVER_IP}
+tftp        IN  A   ${ZTP_SERVER_IP}
+syslog      IN  A   ${ZTP_SERVER_IP}

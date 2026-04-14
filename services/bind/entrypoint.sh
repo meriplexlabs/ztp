@@ -1,10 +1,18 @@
 #!/bin/bash
 set -euo pipefail
 
-# Substitute env vars into config files
-for f in /etc/bind/*.conf /etc/bind/zones/*.zone; do
-    [ -f "$f" ] && envsubst < "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+# Copy configs to a writable working directory and substitute env vars.
+# The source volume (/etc/bind) is mounted read-only and must not be modified.
+WORK_DIR="/tmp/bind"
+mkdir -p "$WORK_DIR/zones"
+
+for f in /etc/bind/*.conf; do
+    [ -f "$f" ] && envsubst < "$f" > "$WORK_DIR/$(basename "$f")"
+done
+
+for f in /etc/bind/zones/*.zone; do
+    [ -f "$f" ] && envsubst < "$f" > "$WORK_DIR/zones/$(basename "$f")"
 done
 
 echo "[bind] Starting named..."
-exec named -f -u named -c /etc/bind/named.conf
+exec named -f -u named -c "$WORK_DIR/named.conf"

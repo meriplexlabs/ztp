@@ -185,15 +185,15 @@
       {
         "id": 1,
         // ── Update these to match your management network ──────────────────
-        "subnet": "192.168.25.0/24",
+        "subnet": "10.144.10.0/24",
         "pools": [
-          { "pool": "192.168.25.100 - 192.168.25.200" }
+          { "pool": "10.144.10.100 - 10.144.10.200" }
         ],
         // ─────────────────────────────────────────────────────────────────
         "option-data": [
-          { "name": "routers",             "data": "192.168.25.1"  },
-          { "name": "domain-name-servers", "data": "192.168.25.1"  },
-          { "name": "domain-name",         "data": "ztp.local"    }
+          { "name": "routers",             "data": "10.144.10.1"  },
+          { "name": "domain-name-servers", "data": "10.144.10.1"  },
+          { "name": "domain-name",         "data": "${ZTP_DOMAIN:-meriplexlabs.com}" }
           // Note: tftp-server-name (option 66) and boot-file-name (option 67)
           // are intentionally NOT set at the subnet level.
           // Each vendor class sets its own — a subnet-level value would
@@ -207,7 +207,7 @@
         // the management VLAN (192.168.25.1). Kea uses this to match the
         // relayed packet to this subnet.
         "relay": {
-          "ip-addresses": ["192.168.25.1"]
+          "ip-addresses": ["10.144.10.1"]
         }
       }
     ],
