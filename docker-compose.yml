@@ -76,7 +76,7 @@ services:
       - bind_data:/var/cache/bind
     ports:
       - "10.122.253.28:53:53/udp"
-      - "10.122.253.28:53/tcp"
+      - "10.122.253.28:53:53/tcp"
     networks:
       - ztp-internal
     healthcheck:
