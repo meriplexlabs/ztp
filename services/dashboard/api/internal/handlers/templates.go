@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	dbpkg "github.com/ztp/api/internal/db"
+	"github.com/ztp/api/internal/models"
 )
 
 type TemplateHandler struct {
@@ -41,6 +42,68 @@ func (h *TemplateHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, tmpl)
+}
+
+// Create POST /api/v1/templates
+func (h *TemplateHandler) Create(w http.ResponseWriter, r *http.Request) {
+	var t models.ConfigTemplate
+	if err := decodeJSON(r, &t); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if t.Name == "" || t.Vendor == "" || t.OSType == "" {
+		writeError(w, http.StatusBadRequest, "name, vendor, and os_type are required")
+		return
+	}
+	if t.FilePath == nil && t.Content == nil {
+		writeError(w, http.StatusBadRequest, "either file_path or content must be provided")
+		return
+	}
+	if t.Variables == nil {
+		t.Variables = []models.TemplateVar{}
+	}
+	if err := dbpkg.CreateTemplate(r.Context(), h.pool, &t); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create template: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, t)
+}
+
+// Update PUT /api/v1/templates/{id}
+func (h *TemplateHandler) Update(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid template ID")
+		return
+	}
+	var t models.ConfigTemplate
+	if err := decodeJSON(r, &t); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	t.ID = id
+	if t.Variables == nil {
+		t.Variables = []models.TemplateVar{}
+	}
+	if err := dbpkg.UpdateTemplate(r.Context(), h.pool, &t); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update template: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, t)
+}
+
+// Delete DELETE /api/v1/templates/{id}
+func (h *TemplateHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid template ID")
+		return
+	}
+	if err := dbpkg.DeleteTemplate(r.Context(), h.pool, id); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete template: "+err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // ListRendererTemplates GET /api/v1/templates/files

@@ -321,6 +321,86 @@ func ChangePassword(ctx context.Context, pool *pgxpool.Pool, userID uuid.UUID, n
 	return err
 }
 
+// ─── Device Profiles (write) ──────────────────────────────────────────────────
+
+func ListProfiles(ctx context.Context, pool *pgxpool.Pool) ([]models.DeviceProfile, error) {
+	rows, err := pool.Query(ctx,
+		`SELECT id, name, description, template_id, variables, created_by, created_at, updated_at
+		 FROM device_profiles ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var profiles []models.DeviceProfile
+	for rows.Next() {
+		var p models.DeviceProfile
+		var variables []byte
+		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.TemplateID, &variables, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			return nil, err
+		}
+		if len(variables) > 0 {
+			_ = json.Unmarshal(variables, &p.Variables)
+		}
+		if p.Variables == nil {
+			p.Variables = map[string]any{}
+		}
+		profiles = append(profiles, p)
+	}
+	return profiles, nil
+}
+
+func CreateProfile(ctx context.Context, pool *pgxpool.Pool, p *models.DeviceProfile) error {
+	vars, _ := json.Marshal(p.Variables)
+	return pool.QueryRow(ctx,
+		`INSERT INTO device_profiles (name, description, template_id, variables, created_by)
+		 VALUES ($1, $2, $3, $4, $5)
+		 RETURNING id, created_at, updated_at`,
+		p.Name, p.Description, p.TemplateID, vars, p.CreatedBy,
+	).Scan(&p.ID, &p.CreatedAt, &p.UpdatedAt)
+}
+
+func UpdateProfile(ctx context.Context, pool *pgxpool.Pool, p *models.DeviceProfile) error {
+	vars, _ := json.Marshal(p.Variables)
+	_, err := pool.Exec(ctx,
+		`UPDATE device_profiles SET name=$1, description=$2, template_id=$3, variables=$4
+		 WHERE id=$5`,
+		p.Name, p.Description, p.TemplateID, vars, p.ID,
+	)
+	return err
+}
+
+func DeleteProfile(ctx context.Context, pool *pgxpool.Pool, id uuid.UUID) error {
+	_, err := pool.Exec(ctx, `DELETE FROM device_profiles WHERE id = $1`, id)
+	return err
+}
+
+// ─── Config Templates (write) ─────────────────────────────────────────────────
+
+func CreateTemplate(ctx context.Context, pool *pgxpool.Pool, t *models.ConfigTemplate) error {
+	vars, _ := json.Marshal(t.Variables)
+	return pool.QueryRow(ctx,
+		`INSERT INTO config_templates (name, vendor, os_type, file_path, content, variables, created_by)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)
+		 RETURNING id, created_at, updated_at`,
+		t.Name, t.Vendor, t.OSType, t.FilePath, t.Content, vars, t.CreatedBy,
+	).Scan(&t.ID, &t.CreatedAt, &t.UpdatedAt)
+}
+
+func UpdateTemplate(ctx context.Context, pool *pgxpool.Pool, t *models.ConfigTemplate) error {
+	vars, _ := json.Marshal(t.Variables)
+	_, err := pool.Exec(ctx,
+		`UPDATE config_templates SET name=$1, vendor=$2, os_type=$3, file_path=$4, content=$5, variables=$6
+		 WHERE id=$7`,
+		t.Name, t.Vendor, t.OSType, t.FilePath, t.Content, vars, t.ID,
+	)
+	return err
+}
+
+func DeleteTemplate(ctx context.Context, pool *pgxpool.Pool, id uuid.UUID) error {
+	_, err := pool.Exec(ctx, `DELETE FROM config_templates WHERE id = $1`, id)
+	return err
+}
+
 // ─── Audit Log ────────────────────────────────────────────────────────────────
 
 func WriteAudit(ctx context.Context, pool *pgxpool.Pool,

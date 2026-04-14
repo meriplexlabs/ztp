@@ -90,6 +90,16 @@ export interface TemplateVar {
   default?: string
 }
 
+export interface DeviceProfile {
+  id: string
+  name: string
+  description?: string
+  template_id?: string
+  variables: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
 export interface SyslogEvent {
   id: number
   device_id?: string

@@ -58,6 +58,7 @@ func main() {
 	authH     := handlers.NewAuthHandler(pool, conf.JWTSecret, conf.JWTExpiry, oidcProvider)
 	deviceH   := handlers.NewDeviceHandler(pool, conf.RendererURL)
 	templateH := handlers.NewTemplateHandler(pool, conf.RendererURL)
+	profileH  := handlers.NewProfileHandler(pool)
 	eventH    := handlers.NewEventHandler(pool)
 	keaH      := handlers.NewKeaHandler(conf.KeaCtrlURL)
 	settingsH := handlers.NewSettingsHandler(pool)
@@ -119,9 +120,19 @@ func main() {
 		r.Get("/api/v1/devices/{id}/config",  deviceH.GetConfig)
 
 		// Templates
-		r.Get("/api/v1/templates",        templateH.List)
-		r.Get("/api/v1/templates/files",  templateH.ListRendererTemplates)
-		r.Get("/api/v1/templates/{id}",   templateH.Get)
+		r.Get("/api/v1/templates",             templateH.List)
+		r.Post("/api/v1/templates",            templateH.Create)
+		r.Get("/api/v1/templates/files",       templateH.ListRendererTemplates)
+		r.Get("/api/v1/templates/{id}",        templateH.Get)
+		r.Put("/api/v1/templates/{id}",        templateH.Update)
+		r.Delete("/api/v1/templates/{id}",     templateH.Delete)
+
+		// Profiles
+		r.Get("/api/v1/profiles",          profileH.List)
+		r.Post("/api/v1/profiles",         profileH.Create)
+		r.Get("/api/v1/profiles/{id}",     profileH.Get)
+		r.Put("/api/v1/profiles/{id}",     profileH.Update)
+		r.Delete("/api/v1/profiles/{id}",  profileH.Delete)
 
 		// Events (syslog)
 		r.Get("/api/v1/events", eventH.List)
