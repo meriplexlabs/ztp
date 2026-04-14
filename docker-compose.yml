@@ -75,8 +75,8 @@ services:
       - ./services/bind/config:/etc/bind:ro
       - bind_data:/var/cache/bind
     ports:
-      - "53:53/udp"
-      - "53:53/tcp"
+      - "10.122.253.28:53:53/udp"
+      - "10.122.253.28:53/tcp"
     networks:
       - ztp-internal
     healthcheck:
