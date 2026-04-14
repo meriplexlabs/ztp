@@ -40,6 +40,7 @@ services:
     cap_add:
       - NET_BIND_SERVICE
       - NET_ADMIN        # required for Kea raw-socket DHCP on host network
+      - NET_RAW          # required to bind UDP/raw sockets on host interfaces
     environment:
       # kea uses host networking — Docker DNS is unavailable, must use 127.0.0.1
       POSTGRES_HOST: 127.0.0.1
