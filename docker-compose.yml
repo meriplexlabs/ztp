@@ -69,7 +69,8 @@ services:
       - NET_BIND_SERVICE
     environment:
       BIND_FORWARDER: ${BIND_FORWARDER:-8.8.8.8}
-      ZTP_DOMAIN: ${ZTP_DOMAIN:-ztp.local}
+      ZTP_DOMAIN: ${ZTP_DOMAIN:-meriplexlabs.com}
+      ZTP_SERVER_IP: ${ZTP_SERVER_IP}
     volumes:
       - ./services/bind/config:/etc/bind:ro
       - bind_data:/var/cache/bind
