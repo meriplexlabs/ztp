@@ -101,6 +101,7 @@ func main() {
 	r.Post("/pnp/HELLO", pnpH.Hello)
 	r.Put("/pnp/HELLO", pnpH.Hello)
 	r.Post("/pnp/WORK-REQUEST", pnpH.WorkRequest)
+	r.Post("/pnp/WORK-RESPONSE", pnpH.WorkResponse)
 
 	// ─── Protected API routes ───────────────────────────────────────────────────
 	r.Group(func(r chi.Router) {

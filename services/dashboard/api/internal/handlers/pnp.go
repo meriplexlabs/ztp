@@ -89,7 +89,7 @@ func (h *PnPHandler) handleHello(w http.ResponseWriter, r *http.Request, serial,
 	if err != nil {
 		// Auto-register new device
 		vendor := "cisco"
-		device = &models.Device{
+		newDevice := &models.Device{
 			Serial:      &serial,
 			VendorClass: &vendor,
 			Status:      models.StatusDiscovered,
@@ -97,11 +97,20 @@ func (h *PnPHandler) handleHello(w http.ResponseWriter, r *http.Request, serial,
 		}
 		if model != "" {
 			desc := model
-			device.Description = &desc
+			newDevice.Description = &desc
 		}
-		if createErr := dbpkg.CreateDevice(ctx, h.pool, device); createErr != nil {
-			log.Error().Err(createErr).Str("serial", serial).Msg("PnP: failed to register device")
+		if createErr := dbpkg.CreateDevice(ctx, h.pool, newDevice); createErr != nil {
+			// Race or duplicate — try fetching again
+			device, err = dbpkg.GetDeviceByIdentifier(ctx, h.pool, serial)
+			if err != nil {
+				log.Error().Err(createErr).Str("serial", serial).Msg("PnP: failed to register device")
+				w.Header().Set("Content-Type", "text/xml; charset=utf-8")
+				fmt.Fprint(w, pnpNoOpResponse(correlator))
+				return
+			}
+			log.Info().Str("serial", serial).Msg("PnP: device already exists, re-fetched")
 		} else {
+			device = newDevice
 			log.Info().Str("serial", serial).Str("model", model).Msg("PnP: auto-registered new device")
 		}
 	}
@@ -130,6 +139,30 @@ func (h *PnPHandler) handleHello(w http.ResponseWriter, r *http.Request, serial,
 	// No profile assigned yet — tell device to check back
 	log.Info().Str("serial", serial).Msg("PnP: no profile assigned, sending no-op")
 	fmt.Fprint(w, pnpNoOpResponse(correlator))
+}
+
+// WorkResponse handles POST /pnp/WORK-RESPONSE — device reports outcome of applied work.
+func (h *PnPHandler) WorkResponse(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	bodyStr := string(body)
+
+	log.Info().
+		Str("remote", r.RemoteAddr).
+		Str("body", bodyStr).
+		Msg("PnP WORK-RESPONSE raw")
+
+	serial, _ := parseUDI(bodyStr)
+	if serial != "" {
+		h.handleWorkResult(w, r, bodyStr, serial)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/xml; charset=utf-8")
+	fmt.Fprint(w, pnpAckResponse())
 }
 
 // WorkRequest handles POST /pnp/WORK-REQUEST — device sends UDI and requests work.
