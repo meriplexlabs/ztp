@@ -82,7 +82,7 @@
           },
           {
             "name": "boot-file-name",
-            "data": "cisco/autoinstall.py"
+            "data": "cisco/base.cfg"
           },
           {
             // Cisco PnP discovery redirect — points device at the ZTP API server
