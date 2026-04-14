@@ -19,4 +19,4 @@ EXPOSE 69/udp
 # tftpd-hpa daemonizes (forks) even with --listen, so PID 1 exits with 0 and
 # Docker restarts the container endlessly. Start it then exec tail to keep the
 # container alive. If tftpd fails to start (non-zero exit) tail won't run.
-CMD ["sh", "-c", "in.tftpd --listen --user tftp --address 0.0.0.0:69 --secure /tftpboot --blocksize 1468 --verbose && exec tail -f /dev/null"]
+CMD ["sh", "-c", "in.tftpd --listen --user tftp --address 0.0.0.0:69 --secure /tftpboot --verbose --refuse tsize --refuse blksize --refuse timeout && exec tail -f /dev/null"]
