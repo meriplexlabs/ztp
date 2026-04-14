@@ -228,7 +228,10 @@ func (h *PnPHandler) WorkResponse(w http.ResponseWriter, r *http.Request) {
 
 func (h *PnPHandler) handleWorkResult(w http.ResponseWriter, r *http.Request, body, serial, udi, correlator string) {
 	ctx := r.Context()
-	success := !strings.Contains(body, "<fault>")
+	// success="0" and <errorInfo> both indicate failure; <fault> is a protocol-level fault
+	success := !strings.Contains(body, `success="0"`) &&
+		!strings.Contains(body, "<errorInfo>") &&
+		!strings.Contains(body, "<fault>")
 
 	device, err := dbpkg.GetDeviceByIdentifier(ctx, h.pool, serial)
 	if err == nil {
