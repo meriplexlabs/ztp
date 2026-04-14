@@ -34,7 +34,7 @@ func NewPnPHandler(pool *pgxpool.Pool, rendererURL string) *PnPHandler {
 	return &PnPHandler{pool: pool, rendererURL: rendererURL}
 }
 
-// Hello handles both POST (initial discovery) and PUT (work result) to /pnp/HELLO.
+// Hello handles GET/POST (initial discovery) and PUT (work result) to /pnp/HELLO.
 func (h *PnPHandler) Hello(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil {
@@ -43,7 +43,14 @@ func (h *PnPHandler) Hello(w http.ResponseWriter, r *http.Request) {
 	}
 	bodyStr := string(body)
 
+	// For GET requests the UDI may be in query params or headers rather than body
 	serial, model := parseUDI(bodyStr)
+	if serial == "" {
+		serial, model = parseUDI(r.URL.RawQuery)
+	}
+	if serial == "" {
+		serial, model = parseUDI(r.Header.Get("X-Cisco-PnP-Device-UDI"))
+	}
 	correlator := parseCorrelator(bodyStr)
 
 	log.Info().
@@ -55,8 +62,13 @@ func (h *PnPHandler) Hello(w http.ResponseWriter, r *http.Request) {
 		Msg("PnP HELLO")
 
 	if serial == "" {
-		log.Warn().Str("body", bodyStr).Msg("PnP: no serial in UDI")
-		w.WriteHeader(http.StatusBadRequest)
+		log.Warn().
+			Str("remote", r.RemoteAddr).
+			Str("method", r.Method).
+			Str("query", r.URL.RawQuery).
+			Msg("PnP: no serial in UDI — returning no-op")
+		w.Header().Set("Content-Type", "text/xml; charset=utf-8")
+		fmt.Fprint(w, pnpNoOpResponse(correlator))
 		return
 	}
 

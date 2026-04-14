@@ -50,6 +50,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
       KEA_DHCP_INTERFACE: ${KEA_DHCP_INTERFACE:-*}
       ZTP_SERVER_IP: ${ZTP_SERVER_IP:-127.0.0.1}
+      ZTP_DOMAIN: ${ZTP_DOMAIN:-meriplexlabs.com}
     volumes:
       - ./services/kea/config:/etc/kea:ro
     depends_on:

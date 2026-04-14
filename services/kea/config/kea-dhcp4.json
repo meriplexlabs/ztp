@@ -193,7 +193,7 @@
         "option-data": [
           { "name": "routers",             "data": "10.144.10.1"  },
           { "name": "domain-name-servers", "data": "10.144.10.1"  },
-          { "name": "domain-name",         "data": "${ZTP_DOMAIN:-meriplexlabs.com}" }
+          { "name": "domain-name",         "data": "${ZTP_DOMAIN}" }
           // Note: tftp-server-name (option 66) and boot-file-name (option 67)
           // are intentionally NOT set at the subnet level.
           // Each vendor class sets its own — a subnet-level value would

@@ -97,6 +97,7 @@ func main() {
 	r.Get("/api/v1/config/{identifier}", deviceH.ZTPConfig)
 
 	// ─── Cisco PnP (unauthenticated — called by devices) ───────────────────────
+	r.Get("/pnp/HELLO", pnpH.Hello)
 	r.Post("/pnp/HELLO", pnpH.Hello)
 	r.Put("/pnp/HELLO", pnpH.Hello)
 
