@@ -31,7 +31,9 @@ RUN mkdir -p /var/run/kea /var/log/kea \
 COPY entrypoint.sh /entrypoint.sh
 RUN sed -i 's/\r//' /entrypoint.sh && chmod +x /entrypoint.sh
 
-USER kea
+# Kea needs root to open raw/AF_PACKET sockets for DHCP broadcast handling.
+# Capabilities alone (NET_BIND_SERVICE, NET_ADMIN, NET_RAW) are insufficient
+# for non-root processes without ambient capability inheritance.
 
 EXPOSE 8000/tcp
 
