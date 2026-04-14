@@ -121,12 +121,20 @@ func GetDevice(ctx context.Context, pool *pgxpool.Pool, id uuid.UUID) (*models.D
 }
 
 func GetDeviceByIdentifier(ctx context.Context, pool *pgxpool.Pool, identifier string) (*models.Device, error) {
+	// Try serial first — avoids macaddr cast errors for non-MAC identifiers.
 	row := pool.QueryRow(ctx,
 		`SELECT id, mac, serial, vendor_class, hostname, description,
 		        status, profile_id, variables, last_seen, provisioned_at, created_at, updated_at
-		 FROM devices
-		 WHERE mac = $1::macaddr OR serial = $1
-		 LIMIT 1`, identifier)
+		 FROM devices WHERE serial = $1 LIMIT 1`, identifier)
+	d, err := scanDevice(row)
+	if err == nil {
+		return d, nil
+	}
+	// Fall back to MAC lookup (only attempted when identifier looks like a MAC).
+	row = pool.QueryRow(ctx,
+		`SELECT id, mac, serial, vendor_class, hostname, description,
+		        status, profile_id, variables, last_seen, provisioned_at, created_at, updated_at
+		 FROM devices WHERE mac::text = lower($1) LIMIT 1`, identifier)
 	return scanDevice(row)
 }
 

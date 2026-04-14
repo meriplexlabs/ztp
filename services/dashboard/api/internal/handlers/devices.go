@@ -177,12 +177,29 @@ func (h *DeviceHandler) renderConfig(r *http.Request, device *models.Device) (st
 	}
 
 	// Merge variables: template defaults < profile vars < device vars
+	// Device fields are also injected so templates can reference them directly.
 	merged := map[string]any{}
 	for k, v := range profile.Variables {
 		merged[k] = v
 	}
 	for k, v := range device.Variables {
 		merged[k] = v
+	}
+	// Auto-inject device fields (explicit variables above take precedence)
+	if device.Serial != nil {
+		if _, ok := merged["serial"]; !ok {
+			merged["serial"] = *device.Serial
+		}
+	}
+	if device.MAC != nil {
+		if _, ok := merged["mac"]; !ok {
+			merged["mac"] = *device.MAC
+		}
+	}
+	if device.Hostname != nil {
+		if _, ok := merged["hostname"]; !ok {
+			merged["hostname"] = *device.Hostname
+		}
 	}
 
 	// Determine template name for renderer

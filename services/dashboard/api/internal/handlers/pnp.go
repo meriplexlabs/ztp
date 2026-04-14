@@ -250,36 +250,30 @@ func parseCorrelator(body string) string {
 func pnpConfigResponse(correlator, config string) string {
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <pnp xmlns="urn:cisco:pnp" version="1.0">
-  <response correlator="%s" success="true" xmlns="urn:cisco:pnp:work-info">
-    <work-response>
-      <work-info id="1">
-        <config>
-          <text><![CDATA[%s]]></text>
-        </config>
-      </work-info>
-    </work-response>
-  </response>
+  <work-response xmlns="urn:cisco:pnp:work-info" correlator="%s" success="true">
+    <work-info id="1">
+      <config>
+        <text><![CDATA[%s]]></text>
+      </config>
+    </work-info>
+  </work-response>
 </pnp>`, correlator, config)
 }
 
 func pnpNoOpResponse(correlator string) string {
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <pnp xmlns="urn:cisco:pnp" version="1.0">
-  <response correlator="%s" success="true" xmlns="urn:cisco:pnp:work-info">
-    <work-response>
-      <no-more-work/>
-    </work-response>
-  </response>
+  <work-response xmlns="urn:cisco:pnp:work-info" correlator="%s" success="true">
+    <no-more-work/>
+  </work-response>
 </pnp>`, correlator)
 }
 
 func pnpAckResponse() string {
 	return `<?xml version="1.0" encoding="UTF-8"?>
 <pnp xmlns="urn:cisco:pnp" version="1.0">
-  <response success="true" xmlns="urn:cisco:pnp:work-info">
-    <work-response>
-      <no-more-work/>
-    </work-response>
-  </response>
+  <work-response xmlns="urn:cisco:pnp:work-info" success="true">
+    <no-more-work/>
+  </work-response>
 </pnp>`
 }
