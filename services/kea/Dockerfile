@@ -18,6 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         isc-kea-hooks \
         isc-kea-admin \
         libpq5 \
+        postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root kea user (Kea packages typically create this, but ensure it exists)
