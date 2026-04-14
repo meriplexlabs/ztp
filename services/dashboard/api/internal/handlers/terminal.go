@@ -88,14 +88,26 @@ func (h *TerminalHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// SSH credentials from device variables
+	// SSH credentials: merge profile vars (lower priority) under device vars
+	merged := map[string]any{}
+	if device.ProfileID != nil {
+		if profile, err := dbpkg.GetProfile(ctx, h.pool, *device.ProfileID); err == nil {
+			for k, v := range profile.Variables {
+				merged[k] = v
+			}
+		}
+	}
+	for k, v := range device.Variables {
+		merged[k] = v
+	}
+
 	username := "admin"
-	if u, _ := device.Variables["ssh_username"].(string); u != "" {
+	if u, _ := merged["ssh_username"].(string); u != "" {
 		username = u
 	}
-	password, _ := device.Variables["local_password"].(string)
+	password, _ := merged["local_password"].(string)
 	if password == "" {
-		writeError(w, http.StatusBadRequest, "device has no local_password variable set")
+		writeError(w, http.StatusBadRequest, "local_password not set on device or profile")
 		return
 	}
 

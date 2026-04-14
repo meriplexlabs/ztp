@@ -20,25 +20,51 @@ function terminalUrl(deviceId: string) {
 }
 
 function TerminalOverlay({ device, onClose }: { device: Device; onClose: () => void }) {
-  return (
-    <div className="fixed inset-0 z-[100] flex flex-col bg-black">
-      <div className="flex items-center justify-between px-4 py-2 bg-gray-900 border-b border-gray-700 shrink-0">
-        <span className="text-white text-sm font-mono">
-          {device.hostname ?? device.serial ?? device.id}
-        </span>
+  const [minimized, setMinimized] = useState(false)
+
+  if (minimized) {
+    return (
+      <div
+        className="fixed bottom-4 right-4 z-[100] bg-gray-900 border border-gray-700 rounded-lg shadow-2xl flex items-center gap-3 px-4 py-2 cursor-pointer hover:bg-gray-800"
+        onClick={() => setMinimized(false)}
+      >
+        <Terminal className="h-4 w-4 text-green-400 shrink-0" />
+        <span className="text-white text-sm font-mono">{device.hostname ?? device.serial}</span>
         <button
-          onClick={onClose}
-          className="text-gray-400 hover:text-white text-lg leading-none px-2"
-          title="Close terminal"
-        >
-          ✕
-        </button>
+          onClick={e => { e.stopPropagation(); onClose() }}
+          className="text-gray-500 hover:text-white ml-2"
+        >✕</button>
       </div>
-      <iframe
-        src={terminalUrl(device.id)}
-        className="flex-1 w-full border-0"
-        title="Device terminal"
-      />
+    )
+  }
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div className="w-[90vw] h-[85vh] flex flex-col bg-black rounded-xl shadow-2xl overflow-hidden border border-gray-700">
+        <div className="flex items-center justify-between px-4 py-2 bg-gray-900 border-b border-gray-700 shrink-0">
+          <span className="text-white text-sm font-mono flex items-center gap-2">
+            <Terminal className="h-4 w-4 text-green-400" />
+            {device.hostname ?? device.serial ?? device.id}
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setMinimized(true)}
+              className="text-gray-400 hover:text-white px-2 py-0.5 rounded hover:bg-gray-700 text-sm"
+              title="Minimize"
+            >─</button>
+            <button
+              onClick={onClose}
+              className="text-gray-400 hover:text-white px-2 py-0.5 rounded hover:bg-gray-700 text-sm"
+              title="Close"
+            >✕</button>
+          </div>
+        </div>
+        <iframe
+          src={terminalUrl(device.id)}
+          className="flex-1 w-full border-0"
+          title="Device terminal"
+        />
+      </div>
     </div>
   )
 }
