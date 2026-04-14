@@ -60,7 +60,8 @@ func main() {
 	templateH := handlers.NewTemplateHandler(pool, conf.RendererURL)
 	profileH  := handlers.NewProfileHandler(pool)
 	eventH    := handlers.NewEventHandler(pool)
-	keaH      := handlers.NewKeaHandler(conf.KeaCtrlURL)
+	keaH      := handlers.NewKeaHandler(pool, conf.KeaCtrlURL)
+	terminalH := handlers.NewTerminalHandler(pool, conf.JWTSecret)
 	settingsH := handlers.NewSettingsHandler(pool)
 	pnpH      := handlers.NewPnPHandler(pool, conf.RendererURL)
 
@@ -96,6 +97,10 @@ func main() {
 
 	// ─── ZTP config endpoint (unauthenticated — called by devices) ─────────────
 	r.Get("/api/v1/config/{identifier}", deviceH.ZTPConfig)
+
+	// ─── Device terminal (token auth via query param — opened in browser window) ─
+	r.Get("/api/v1/devices/{id}/terminal",    terminalH.ServeHTML)
+	r.Get("/api/v1/devices/{id}/terminal/ws", terminalH.ServeWS)
 
 	// ─── Cisco PnP (unauthenticated — called by devices) ───────────────────────
 	r.Get("/pnp/HELLO", pnpH.Hello)

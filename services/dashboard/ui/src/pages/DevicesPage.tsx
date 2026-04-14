@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api, type Device, type DeviceProfile } from '@/lib/api'
+import { api, type Device, type DeviceProfile, type DHCPLease } from '@/lib/api'
 import { formatRelative } from '@/lib/utils'
-import { Server, RefreshCw, X, Plus, Trash2 } from 'lucide-react'
+import { Server, RefreshCw, X, Plus, Trash2, Terminal } from 'lucide-react'
 
 const STATUS_COLORS: Record<Device['status'], string> = {
   unknown:      'bg-gray-100 text-gray-700',
@@ -13,13 +13,22 @@ const STATUS_COLORS: Record<Device['status'], string> = {
   ignored:      'bg-gray-100 text-gray-500',
 }
 
+function openTerminal(deviceId: string) {
+  const token = localStorage.getItem('ztp_token') ?? ''
+  const base  = import.meta.env.VITE_API_URL ?? ''
+  const url   = `${base}/api/v1/devices/${deviceId}/terminal?token=${encodeURIComponent(token)}`
+  window.open(url, '_blank', 'width=1100,height=650,menubar=no,toolbar=no')
+}
+
 function DeviceDrawer({
   device,
   profiles,
+  leases,
   onClose,
 }: {
   device: Device
   profiles: DeviceProfile[]
+  leases: DHCPLease[]
   onClose: () => void
 }) {
   const qc = useQueryClient()
@@ -29,6 +38,11 @@ function DeviceDrawer({
     Object.entries(device.variables ?? {}).map(([k, v]) => [k, String(v)])
   )
   const [error, setError] = useState<string | null>(null)
+
+  const lease = leases.find(l =>
+    (device.hostname && l.hostname === device.hostname) ||
+    (device.mac && l.hw_address === device.mac)
+  )
 
   const save = useMutation({
     mutationFn: (body: Partial<Device>) =>
@@ -71,15 +85,13 @@ function DeviceDrawer({
 
   return (
     <>
-      {/* Backdrop */}
       <div className="fixed inset-0 bg-black/30 z-40" onClick={onClose} />
 
-      {/* Drawer */}
-      <div className="fixed right-0 top-0 h-full w-[420px] bg-background border-l shadow-xl z-50 flex flex-col">
+      <div className="fixed right-0 top-0 h-full w-[440px] bg-background border-l shadow-xl z-50 flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b">
           <div>
-            <p className="font-semibold text-sm">{device.serial ?? device.mac ?? device.id}</p>
+            <p className="font-semibold text-sm">{device.hostname ?? device.serial ?? device.mac ?? device.id}</p>
             {device.description && (
               <p className="text-xs text-muted-foreground">{device.description}</p>
             )}
@@ -95,11 +107,15 @@ function DeviceDrawer({
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div>
               <p className="text-xs text-muted-foreground mb-1">Serial</p>
-              <p className="font-mono">{device.serial ?? '—'}</p>
+              <p className="font-mono text-xs">{device.serial ?? '—'}</p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground mb-1">MAC</p>
-              <p className="font-mono">{device.mac ?? '—'}</p>
+              <p className="font-mono text-xs">{device.mac ?? lease?.hw_address ?? '—'}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground mb-1">Management IP</p>
+              <p className="font-mono text-xs">{lease?.ip_address ?? '—'}</p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground mb-1">Status</p>
@@ -109,15 +125,17 @@ function DeviceDrawer({
             </div>
             <div>
               <p className="text-xs text-muted-foreground mb-1">Last Seen</p>
-              <p>{device.last_seen ? formatRelative(device.last_seen) : '—'}</p>
+              <p className="text-xs">{device.last_seen ? formatRelative(device.last_seen) : '—'}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground mb-1">Provisioned</p>
+              <p className="text-xs">{device.provisioned_at ? formatRelative(device.provisioned_at) : '—'}</p>
             </div>
           </div>
 
           {/* Hostname */}
           <div>
-            <label className="block text-xs font-medium text-muted-foreground mb-1">
-              Hostname
-            </label>
+            <label className="block text-xs font-medium text-muted-foreground mb-1">Hostname</label>
             <input
               type="text"
               value={hostname}
@@ -129,9 +147,7 @@ function DeviceDrawer({
 
           {/* Profile */}
           <div>
-            <label className="block text-xs font-medium text-muted-foreground mb-1">
-              Profile
-            </label>
+            <label className="block text-xs font-medium text-muted-foreground mb-1">Profile</label>
             <select
               value={profileId}
               onChange={e => setProfileId(e.target.value)}
@@ -183,9 +199,7 @@ function DeviceDrawer({
             </div>
           </div>
 
-          {error && (
-            <p className="text-xs text-destructive">{error}</p>
-          )}
+          {error && <p className="text-xs text-destructive">{error}</p>}
         </div>
 
         {/* Footer */}
@@ -199,6 +213,15 @@ function DeviceDrawer({
             Delete
           </button>
           <div className="flex gap-2">
+            {device.status === 'provisioned' && lease?.ip_address && (
+              <button
+                onClick={() => openTerminal(device.id)}
+                className="flex items-center gap-1.5 text-sm px-4 py-2 rounded border border-green-600 text-green-700 hover:bg-green-50"
+              >
+                <Terminal className="h-4 w-4" />
+                Connect
+              </button>
+            )}
             <button
               onClick={onClose}
               className="text-sm px-4 py-2 rounded border hover:bg-accent"
@@ -230,6 +253,18 @@ export default function DevicesPage() {
     queryKey: ['profiles'],
     queryFn: () => api.get<DeviceProfile[]>('/api/v1/profiles'),
   })
+  const { data: leases = [] } = useQuery<DHCPLease[]>({
+    queryKey: ['leases'],
+    queryFn: () => api.get<DHCPLease[]>('/api/v1/leases'),
+    refetchInterval: 30_000,
+  })
+
+  function getLeaseForDevice(d: Device): DHCPLease | undefined {
+    return leases.find(l =>
+      (d.hostname && l.hostname === d.hostname) ||
+      (d.mac && l.hw_address === d.mac)
+    )
+  }
 
   return (
     <div className="p-6">
@@ -244,27 +279,21 @@ export default function DevicesPage() {
         <button
           onClick={() => refetch()}
           disabled={isFetching}
-          className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground
-                     disabled:opacity-50 transition-colors"
+          className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground disabled:opacity-50 transition-colors"
         >
           <RefreshCw className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
           Refresh
         </button>
       </div>
 
-      {isLoading && (
-        <div className="text-muted-foreground text-sm">Loading devices…</div>
-      )}
-
-      {error && (
-        <div className="text-destructive text-sm">Failed to load devices: {error.message}</div>
-      )}
+      {isLoading && <div className="text-muted-foreground text-sm">Loading devices…</div>}
+      {error && <div className="text-destructive text-sm">Failed to load devices: {error.message}</div>}
 
       {devices && devices.length === 0 && (
         <div className="text-center py-16 text-muted-foreground">
           <Server className="h-12 w-12 mx-auto mb-4 opacity-30" />
           <p className="font-medium">No devices yet</p>
-          <p className="text-sm">Devices will appear here when they send DHCP requests.</p>
+          <p className="text-sm">Devices appear here when they connect via DHCP or PnP.</p>
         </div>
       )}
 
@@ -274,6 +303,7 @@ export default function DevicesPage() {
             <thead>
               <tr className="bg-muted/50 border-b">
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Hostname</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground">IP</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">MAC</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Serial</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Profile</th>
@@ -284,6 +314,7 @@ export default function DevicesPage() {
             <tbody>
               {devices.map((d, i) => {
                 const profile = profiles.find(p => p.id === d.profile_id)
+                const lease   = getLeaseForDevice(d)
                 return (
                   <tr
                     key={d.id}
@@ -291,7 +322,8 @@ export default function DevicesPage() {
                     className={`cursor-pointer hover:bg-muted/40 transition-colors ${i % 2 === 0 ? '' : 'bg-muted/20'}`}
                   >
                     <td className="px-4 py-3 font-medium">{d.hostname ?? <span className="text-muted-foreground">—</span>}</td>
-                    <td className="px-4 py-3 font-mono text-xs">{d.mac ?? '—'}</td>
+                    <td className="px-4 py-3 font-mono text-xs">{lease?.ip_address ?? '—'}</td>
+                    <td className="px-4 py-3 font-mono text-xs">{d.mac ?? lease?.hw_address ?? '—'}</td>
                     <td className="px-4 py-3 font-mono text-xs">{d.serial ?? '—'}</td>
                     <td className="px-4 py-3 text-muted-foreground text-xs">{profile?.name ?? '—'}</td>
                     <td className="px-4 py-3">
@@ -299,7 +331,7 @@ export default function DevicesPage() {
                         {d.status}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground">
+                    <td className="px-4 py-3 text-muted-foreground text-xs">
                       {d.last_seen ? formatRelative(d.last_seen) : '—'}
                     </td>
                   </tr>
@@ -314,6 +346,7 @@ export default function DevicesPage() {
         <DeviceDrawer
           device={selected}
           profiles={profiles}
+          leases={leases}
           onClose={() => setSelected(null)}
         />
       )}
