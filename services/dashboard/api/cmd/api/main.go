@@ -61,6 +61,7 @@ func main() {
 	eventH    := handlers.NewEventHandler(pool)
 	keaH      := handlers.NewKeaHandler(conf.KeaCtrlURL)
 	settingsH := handlers.NewSettingsHandler(pool)
+	pnpH      := handlers.NewPnPHandler(pool, conf.RendererURL)
 
 	// Router
 	r := chi.NewRouter()
@@ -94,6 +95,10 @@ func main() {
 
 	// ─── ZTP config endpoint (unauthenticated — called by devices) ─────────────
 	r.Get("/api/v1/config/{identifier}", deviceH.ZTPConfig)
+
+	// ─── Cisco PnP (unauthenticated — called by devices) ───────────────────────
+	r.Post("/pnp/HELLO", pnpH.Hello)
+	r.Put("/pnp/HELLO", pnpH.Hello)
 
 	// ─── Protected API routes ───────────────────────────────────────────────────
 	r.Group(func(r chi.Router) {

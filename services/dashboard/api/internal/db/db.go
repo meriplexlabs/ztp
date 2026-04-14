@@ -169,10 +169,12 @@ func UpdateDevice(ctx context.Context, pool *pgxpool.Pool, d *models.Device) err
 	_, err := pool.Exec(ctx,
 		`UPDATE devices SET
 		    mac=$1, serial=$2, vendor_class=$3, hostname=$4,
-		    description=$5, profile_id=$6, variables=$7, status=$8
-		 WHERE id=$9`,
+		    description=$5, profile_id=$6, variables=$7, status=$8,
+		    provisioned_at=$9
+		 WHERE id=$10`,
 		d.MAC, d.Serial, d.VendorClass, d.Hostname,
-		d.Description, d.ProfileID, vars, d.Status, d.ID,
+		d.Description, d.ProfileID, vars, d.Status,
+		d.ProvisionedAt, d.ID,
 	)
 	return err
 }
