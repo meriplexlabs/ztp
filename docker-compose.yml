@@ -36,13 +36,14 @@ services:
     network_mode: host
     cap_add:
       - NET_BIND_SERVICE
+      - NET_ADMIN        # required for Kea raw-socket DHCP on host network
     environment:
       POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
       POSTGRES_PORT: ${POSTGRES_PORT:-5432}
       POSTGRES_DB: ${POSTGRES_DB:-ztp}
       POSTGRES_USER: ${POSTGRES_USER:-ztp}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
-      KEA_DHCP_INTERFACE: ${KEA_DHCP_INTERFACE:-eth0}
+      KEA_DHCP_INTERFACE: ${KEA_DHCP_INTERFACE:-*}
       ZTP_SERVER_IP: ${ZTP_SERVER_IP:-127.0.0.1}
     volumes:
       - ./services/kea/config:/etc/kea:ro
