@@ -13,11 +13,34 @@ const STATUS_COLORS: Record<Device['status'], string> = {
   ignored:      'bg-gray-100 text-gray-500',
 }
 
-function openTerminal(deviceId: string) {
+function terminalUrl(deviceId: string) {
   const token = localStorage.getItem('ztp_token') ?? ''
   const base  = import.meta.env.VITE_API_URL ?? ''
-  const url   = `${base}/api/v1/devices/${deviceId}/terminal?token=${encodeURIComponent(token)}`
-  window.open(url, '_blank', 'width=1100,height=650,menubar=no,toolbar=no')
+  return `${base}/api/v1/devices/${deviceId}/terminal?token=${encodeURIComponent(token)}`
+}
+
+function TerminalOverlay({ device, onClose }: { device: Device; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-[100] flex flex-col bg-black">
+      <div className="flex items-center justify-between px-4 py-2 bg-gray-900 border-b border-gray-700 shrink-0">
+        <span className="text-white text-sm font-mono">
+          {device.hostname ?? device.serial ?? device.id}
+        </span>
+        <button
+          onClick={onClose}
+          className="text-gray-400 hover:text-white text-lg leading-none px-2"
+          title="Close terminal"
+        >
+          ✕
+        </button>
+      </div>
+      <iframe
+        src={terminalUrl(device.id)}
+        className="flex-1 w-full border-0"
+        title="Device terminal"
+      />
+    </div>
+  )
 }
 
 function DeviceDrawer({
@@ -25,11 +48,13 @@ function DeviceDrawer({
   profiles,
   leases,
   onClose,
+  onTerminal,
 }: {
   device: Device
   profiles: DeviceProfile[]
   leases: DHCPLease[]
   onClose: () => void
+  onTerminal: (d: Device) => void
 }) {
   const qc = useQueryClient()
   const [hostname, setHostname] = useState(device.hostname ?? '')
@@ -215,7 +240,7 @@ function DeviceDrawer({
           <div className="flex gap-2">
             {device.status === 'provisioned' && lease?.ip_address && (
               <button
-                onClick={() => openTerminal(device.id)}
+                onClick={() => { onClose(); onTerminal(device) }}
                 className="flex items-center gap-1.5 text-sm px-4 py-2 rounded border border-green-600 text-green-700 hover:bg-green-50"
               >
                 <Terminal className="h-4 w-4" />
@@ -243,7 +268,8 @@ function DeviceDrawer({
 }
 
 export default function DevicesPage() {
-  const [selected, setSelected] = useState<Device | null>(null)
+  const [selected, setSelected]         = useState<Device | null>(null)
+  const [terminalDevice, setTerminal]   = useState<Device | null>(null)
   const { data: devices, isLoading, error, refetch, isFetching } = useQuery<Device[]>({
     queryKey: ['devices'],
     queryFn: () => api.get<Device[]>('/api/v1/devices'),
@@ -348,7 +374,12 @@ export default function DevicesPage() {
           profiles={profiles}
           leases={leases}
           onClose={() => setSelected(null)}
+          onTerminal={(d) => { setSelected(null); setTerminal(d) }}
         />
+      )}
+
+      {terminalDevice && (
+        <TerminalOverlay device={terminalDevice} onClose={() => setTerminal(null)} />
       )}
     </div>
   )
