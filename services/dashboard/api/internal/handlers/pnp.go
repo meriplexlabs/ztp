@@ -132,6 +132,33 @@ func (h *PnPHandler) handleHello(w http.ResponseWriter, r *http.Request, serial,
 	fmt.Fprint(w, pnpNoOpResponse(correlator))
 }
 
+// WorkRequest handles POST /pnp/WORK-REQUEST — device sends UDI and requests work.
+func (h *PnPHandler) WorkRequest(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	bodyStr := string(body)
+
+	log.Info().
+		Str("remote", r.RemoteAddr).
+		Str("body", bodyStr).
+		Msg("PnP WORK-REQUEST raw")
+
+	serial, model := parseUDI(bodyStr)
+	correlator := parseCorrelator(bodyStr)
+
+	if serial == "" {
+		log.Warn().Msg("PnP WORK-REQUEST: no serial found")
+		w.Header().Set("Content-Type", "text/xml; charset=utf-8")
+		fmt.Fprint(w, pnpNoOpResponse(correlator))
+		return
+	}
+
+	h.handleHello(w, r, serial, model, correlator)
+}
+
 func (h *PnPHandler) handleWorkResult(w http.ResponseWriter, r *http.Request, body, serial string) {
 	ctx := r.Context()
 	success := strings.Contains(body, `success="true"`) || strings.Contains(body, "success=true")
