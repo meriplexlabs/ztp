@@ -21,10 +21,12 @@ var (
 )
 
 // PnPHandler handles Cisco PnP (Plug and Play) protocol requests.
-// Flow: switch boots → DHCP option 43 points to this server →
-//
-//	switch POSTs /pnp/HELLO → we return config or no-op →
-//	switch applies config → switch PUTs /pnp/HELLO with result.
+// Protocol flow:
+//  1. Switch boots → DHCP option 43 points to this server
+//  2. Switch GET/POST /pnp/HELLO → server acknowledges, auto-registers device
+//  3. Switch POST /pnp/WORK-REQUEST → server returns config URL (config-upgrade) or bye
+//  4. Switch fetches config from URL, applies it
+//  5. Switch POST /pnp/WORK-RESPONSE → server acknowledges with bye
 type PnPHandler struct {
 	pool        *pgxpool.Pool
 	rendererURL string
@@ -43,7 +45,6 @@ func (h *PnPHandler) Hello(w http.ResponseWriter, r *http.Request) {
 	}
 	bodyStr := string(body)
 
-	// For GET requests the UDI may be in query params or headers rather than body
 	serial, model := parseUDI(bodyStr)
 	if serial == "" {
 		serial, model = parseUDI(r.URL.RawQuery)
@@ -51,6 +52,7 @@ func (h *PnPHandler) Hello(w http.ResponseWriter, r *http.Request) {
 	if serial == "" {
 		serial, model = parseUDI(r.Header.Get("X-Cisco-PnP-Device-UDI"))
 	}
+	udi := parseRawUDI(bodyStr)
 	correlator := parseCorrelator(bodyStr)
 
 	log.Info().
@@ -62,32 +64,26 @@ func (h *PnPHandler) Hello(w http.ResponseWriter, r *http.Request) {
 		Msg("PnP HELLO")
 
 	if serial == "" {
-		log.Warn().
-			Str("remote", r.RemoteAddr).
-			Str("method", r.Method).
-			Str("query", r.URL.RawQuery).
-			Msg("PnP: no serial in UDI — returning no-op")
 		w.Header().Set("Content-Type", "text/xml; charset=utf-8")
-		fmt.Fprint(w, pnpNoOpResponse(correlator))
+		fmt.Fprint(w, pnpByeResponse(udi, correlator))
 		return
 	}
 
 	// PUT = work result from device after config was applied
 	if r.Method == http.MethodPut {
-		h.handleWorkResult(w, r, bodyStr, serial)
+		h.handleWorkResult(w, r, bodyStr, serial, udi, correlator)
 		return
 	}
 
-	// POST = discovery HELLO — upsert device, return config or no-op
-	h.handleHello(w, r, serial, model, correlator)
+	// GET/POST HELLO — register device, return bye (config delivery happens in WORK-REQUEST)
+	h.handleHelloRegister(w, r, serial, model, udi, correlator)
 }
 
-func (h *PnPHandler) handleHello(w http.ResponseWriter, r *http.Request, serial, model, correlator string) {
+func (h *PnPHandler) handleHelloRegister(w http.ResponseWriter, r *http.Request, serial, model, udi, correlator string) {
 	ctx := r.Context()
 
 	device, err := dbpkg.GetDeviceByIdentifier(ctx, h.pool, serial)
 	if err != nil {
-		// Auto-register new device
 		vendor := "cisco"
 		newDevice := &models.Device{
 			Serial:      &serial,
@@ -100,12 +96,11 @@ func (h *PnPHandler) handleHello(w http.ResponseWriter, r *http.Request, serial,
 			newDevice.Description = &desc
 		}
 		if createErr := dbpkg.CreateDevice(ctx, h.pool, newDevice); createErr != nil {
-			// Race or duplicate — try fetching again
 			device, err = dbpkg.GetDeviceByIdentifier(ctx, h.pool, serial)
 			if err != nil {
 				log.Error().Err(createErr).Str("serial", serial).Msg("PnP: failed to register device")
 				w.Header().Set("Content-Type", "text/xml; charset=utf-8")
-				fmt.Fprint(w, pnpNoOpResponse(correlator))
+				fmt.Fprint(w, pnpByeResponse(udi, correlator))
 				return
 			}
 			log.Info().Str("serial", serial).Msg("PnP: device already exists, re-fetched")
@@ -115,57 +110,15 @@ func (h *PnPHandler) handleHello(w http.ResponseWriter, r *http.Request, serial,
 		}
 	}
 
-	// Update last seen
 	now := time.Now()
-	_, _ = h.pool.Exec(ctx,
-		`UPDATE devices SET last_seen = $1 WHERE id = $2`, now, device.ID)
+	_, _ = h.pool.Exec(ctx, `UPDATE devices SET last_seen = $1 WHERE id = $2`, now, device.ID)
 
 	w.Header().Set("Content-Type", "text/xml; charset=utf-8")
-
-	// If device has a profile, render and return config
-	if device.ProfileID != nil {
-		dh := &DeviceHandler{pool: h.pool, rendererURL: h.rendererURL}
-		config, renderErr := dh.renderConfig(r, device)
-		if renderErr == nil {
-			device.Status = models.StatusProvisioning
-			_ = dbpkg.UpdateDevice(ctx, h.pool, device)
-			log.Info().Str("serial", serial).Msg("PnP: sending config")
-			fmt.Fprint(w, pnpConfigResponse(correlator, config))
-			return
-		}
-		log.Warn().Err(renderErr).Str("serial", serial).Msg("PnP: render failed, sending no-op")
-	}
-
-	// No profile assigned yet — tell device to check back
-	log.Info().Str("serial", serial).Msg("PnP: no profile assigned, sending no-op")
-	fmt.Fprint(w, pnpNoOpResponse(correlator))
+	fmt.Fprint(w, pnpByeResponse(udi, correlator))
 }
 
-// WorkResponse handles POST /pnp/WORK-RESPONSE — device reports outcome of applied work.
-func (h *PnPHandler) WorkResponse(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-	bodyStr := string(body)
-
-	log.Info().
-		Str("remote", r.RemoteAddr).
-		Str("body", bodyStr).
-		Msg("PnP WORK-RESPONSE raw")
-
-	serial, _ := parseUDI(bodyStr)
-	if serial != "" {
-		h.handleWorkResult(w, r, bodyStr, serial)
-		return
-	}
-
-	w.Header().Set("Content-Type", "text/xml; charset=utf-8")
-	fmt.Fprint(w, pnpAckResponse())
-}
-
-// WorkRequest handles POST /pnp/WORK-REQUEST — device sends UDI and requests work.
+// WorkRequest handles POST /pnp/WORK-REQUEST — device requests work.
+// Server responds with a config-upgrade URL if profile is assigned, or bye.
 func (h *PnPHandler) WorkRequest(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil {
@@ -180,21 +133,102 @@ func (h *PnPHandler) WorkRequest(w http.ResponseWriter, r *http.Request) {
 		Msg("PnP WORK-REQUEST raw")
 
 	serial, model := parseUDI(bodyStr)
+	udi := parseRawUDI(bodyStr)
 	correlator := parseCorrelator(bodyStr)
 
 	if serial == "" {
 		log.Warn().Msg("PnP WORK-REQUEST: no serial found")
 		w.Header().Set("Content-Type", "text/xml; charset=utf-8")
-		fmt.Fprint(w, pnpNoOpResponse(correlator))
+		fmt.Fprint(w, pnpByeResponse(udi, correlator))
 		return
 	}
 
-	h.handleHello(w, r, serial, model, correlator)
+	h.handleWorkRequestForDevice(w, r, serial, model, udi, correlator)
 }
 
-func (h *PnPHandler) handleWorkResult(w http.ResponseWriter, r *http.Request, body, serial string) {
+func (h *PnPHandler) handleWorkRequestForDevice(w http.ResponseWriter, r *http.Request, serial, model, udi, correlator string) {
 	ctx := r.Context()
-	success := strings.Contains(body, `success="true"`) || strings.Contains(body, "success=true")
+
+	device, err := dbpkg.GetDeviceByIdentifier(ctx, h.pool, serial)
+	if err != nil {
+		// Auto-register if not seen yet
+		vendor := "cisco"
+		newDevice := &models.Device{
+			Serial:      &serial,
+			VendorClass: &vendor,
+			Status:      models.StatusDiscovered,
+			Variables:   map[string]any{},
+		}
+		if model != "" {
+			desc := model
+			newDevice.Description = &desc
+		}
+		if createErr := dbpkg.CreateDevice(ctx, h.pool, newDevice); createErr != nil {
+			device, err = dbpkg.GetDeviceByIdentifier(ctx, h.pool, serial)
+			if err != nil {
+				log.Error().Err(createErr).Str("serial", serial).Msg("PnP: failed to register device")
+				w.Header().Set("Content-Type", "text/xml; charset=utf-8")
+				fmt.Fprint(w, pnpByeResponse(udi, correlator))
+				return
+			}
+		} else {
+			device = newDevice
+			log.Info().Str("serial", serial).Str("model", model).Msg("PnP: auto-registered new device")
+		}
+	}
+
+	now := time.Now()
+	_, _ = h.pool.Exec(ctx, `UPDATE devices SET last_seen = $1 WHERE id = $2`, now, device.ID)
+
+	w.Header().Set("Content-Type", "text/xml; charset=utf-8")
+
+	if device.ProfileID != nil {
+		// Tell the switch to fetch config from our ZTP config endpoint
+		scheme := "http"
+		configURL := fmt.Sprintf("%s://%s/api/v1/config/%s", scheme, r.Host, serial)
+
+		device.Status = models.StatusProvisioning
+		_ = dbpkg.UpdateDevice(ctx, h.pool, device)
+
+		log.Info().Str("serial", serial).Str("url", configURL).Msg("PnP: directing to config URL")
+		fmt.Fprint(w, pnpConfigUpgradeResponse(udi, correlator, configURL))
+		return
+	}
+
+	log.Info().Str("serial", serial).Msg("PnP: no profile assigned, sending bye")
+	fmt.Fprint(w, pnpByeResponse(udi, correlator))
+}
+
+// WorkResponse handles POST /pnp/WORK-RESPONSE — device reports outcome.
+func (h *PnPHandler) WorkResponse(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	bodyStr := string(body)
+
+	log.Info().
+		Str("remote", r.RemoteAddr).
+		Str("body", bodyStr).
+		Msg("PnP WORK-RESPONSE raw")
+
+	serial, _ := parseUDI(bodyStr)
+	udi := parseRawUDI(bodyStr)
+	correlator := parseCorrelator(bodyStr)
+
+	if serial != "" {
+		h.handleWorkResult(w, r, bodyStr, serial, udi, correlator)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/xml; charset=utf-8")
+	fmt.Fprint(w, pnpByeResponse(udi, correlator))
+}
+
+func (h *PnPHandler) handleWorkResult(w http.ResponseWriter, r *http.Request, body, serial, udi, correlator string) {
+	ctx := r.Context()
+	success := !strings.Contains(body, "<fault>")
 
 	device, err := dbpkg.GetDeviceByIdentifier(ctx, h.pool, serial)
 	if err == nil {
@@ -213,17 +247,24 @@ func (h *PnPHandler) handleWorkResult(w http.ResponseWriter, r *http.Request, bo
 	}
 
 	w.Header().Set("Content-Type", "text/xml; charset=utf-8")
-	fmt.Fprint(w, pnpAckResponse())
+	fmt.Fprint(w, pnpByeResponse(udi, correlator))
 }
 
 // ── XML helpers ───────────────────────────────────────────────────────────────
+
+func parseRawUDI(body string) string {
+	m := reUDI.FindStringSubmatch(body)
+	if len(m) < 2 {
+		return ""
+	}
+	return m[1]
+}
 
 func parseUDI(body string) (serial, model string) {
 	m := reUDI.FindStringSubmatch(body)
 	if len(m) < 2 {
 		return "", ""
 	}
-	// UDI format: "PID:C9200L-48P-4G,VID:V01,SN:FOC1234ABCD"
 	for _, part := range strings.Split(m[1], ",") {
 		kv := strings.SplitN(part, ":", 2)
 		if len(kv) != 2 {
@@ -242,38 +283,40 @@ func parseUDI(body string) (serial, model string) {
 func parseCorrelator(body string) string {
 	m := reCorrelator.FindStringSubmatch(body)
 	if len(m) < 2 {
-		return "uid=0"
+		return ""
 	}
 	return m[1]
 }
 
-func pnpConfigResponse(correlator, config string) string {
+// pnpConfigUpgradeResponse tells the switch to fetch its config from the given URL.
+func pnpConfigUpgradeResponse(udi, correlator, configURL string) string {
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
-<pnp xmlns="urn:cisco:pnp" version="1.0">
-  <info xmlns="urn:cisco:pnp:work-info" correlator="%s">
-    <work-info id="1">
-      <config>
-        <text><![CDATA[%s]]></text>
-      </config>
-    </work-info>
-  </info>
-</pnp>`, correlator, config)
+<pnp xmlns="urn:cisco:pnp" version="1.0" udi="%s">
+  <request correlator="%s" xmlns="urn:cisco:pnp:config-upgrade">
+    <config details="all">
+      <copy>
+        <source>
+          <location>%s</location>
+        </source>
+      </copy>
+    </config>
+    <noReload/>
+  </request>
+</pnp>`, udi, correlator, configURL)
 }
 
-func pnpNoOpResponse(correlator string) string {
+// pnpByeResponse ends the PnP session (no more work / acknowledgment).
+func pnpByeResponse(udi, correlator string) string {
+	corAttr := ""
+	if correlator != "" {
+		corAttr = fmt.Sprintf(` correlator="%s"`, correlator)
+	}
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
-<pnp xmlns="urn:cisco:pnp" version="1.0">
-  <info xmlns="urn:cisco:pnp:work-info" correlator="%s">
-    <no-more-work/>
+<pnp xmlns="urn:cisco:pnp" version="1.0" udi="%s">
+  <info xmlns="urn:cisco:pnp:work-info"%s>
+    <workInfo>
+      <bye/>
+    </workInfo>
   </info>
-</pnp>`, correlator)
-}
-
-func pnpAckResponse() string {
-	return `<?xml version="1.0" encoding="UTF-8"?>
-<pnp xmlns="urn:cisco:pnp" version="1.0">
-  <info xmlns="urn:cisco:pnp:work-info">
-    <no-more-work/>
-  </info>
-</pnp>`
+</pnp>`, udi, corAttr)
 }

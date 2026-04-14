@@ -2,7 +2,15 @@
   "permissions": {
     "allow": [
       "Bash(go mod tidy)",
-      "Bash(go build ./...)"
+      "Bash(go build ./...)",
+      "WebSearch",
+      "WebFetch(domain:www.cisco.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:netdevops.blog)",
+      "WebFetch(domain:community.cisco.com)",
+      "WebFetch(domain:developer.cisco.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:api.github.com)"
     ]
   }
 }
