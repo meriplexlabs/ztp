@@ -89,16 +89,15 @@ services:
       context: ./services/tftp
       dockerfile: Dockerfile
     restart: unless-stopped
+    # Host networking required — TFTP uses random ephemeral ports for data
+    # transfer which Docker NAT cannot forward transparently.
+    network_mode: host
     cap_add:
       - NET_BIND_SERVICE
     environment:
       TFTP_ROOT: /tftpboot
     volumes:
       - ./services/tftp/tftpboot:/tftpboot:ro
-    ports:
-      - "69:69/udp"
-    networks:
-      - ztp-internal
     healthcheck:
       <<: *healthcheck-defaults
       test: ["CMD-SHELL", "pgrep tftpd || exit 1"]
