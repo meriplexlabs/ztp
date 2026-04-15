@@ -65,6 +65,7 @@ func main() {
 	settingsH := handlers.NewSettingsHandler(pool)
 	pnpH      := handlers.NewPnPHandler(pool, conf.RendererURL)
 	juniperH  := handlers.NewJuniperHandler(pool, conf.RendererURL)
+	arubaH    := handlers.NewArubaHandler(pool, conf.RendererURL)
 
 	// Router
 	r := chi.NewRouter()
@@ -105,6 +106,9 @@ func main() {
 
 	// ─── Juniper ZTP (unauthenticated — called by devices) ─────────────────────
 	r.Get("/juniper/config", juniperH.ZTPConfig)
+
+	// ─── Aruba/HP ZTP (unauthenticated — called by devices) ─────────────────────
+	r.Get("/aruba/config", arubaH.ZTPConfig)
 
 	// ─── Cisco PnP (unauthenticated — called by devices) ───────────────────────
 	r.Get("/pnp/HELLO", pnpH.Hello)
