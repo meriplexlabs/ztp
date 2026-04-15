@@ -44,13 +44,22 @@
     "renew-timer": 200,
     "rebind-timer": 400,
 
-    // Redefine option 43 as a plain string so we can send Cisco PnP text directly.
-    // (Kea's built-in type for 43 is binary, which requires hex encoding.)
+    // Option 43 is redefined as "string" so Cisco PnP data ("5A1N;B2;K4;I...;J8080")
+    // can be set as a plain ASCII string with ${ZTP_SERVER_IP} substitution.
+    // For Juniper, option 43 is sent with csv-format:false (raw hex), which Kea
+    // honours per-entry regardless of the global type definition.
+    // Option 150 (tftp-server-address) is the Juniper file server pointer.
     "option-def": [
       {
         "name": "vendor-encapsulated-options",
         "code": 43,
         "type": "string",
+        "space": "dhcp4"
+      },
+      {
+        "name": "tftp-server-address",
+        "code": 150,
+        "type": "ipv4-address",
         "space": "dhcp4"
       }
     ],
@@ -97,22 +106,32 @@
       // ── Juniper ──────────────────────────────────────────────────────────────
       // option 60 = "Juniper-<model>-<serial>"
       //   e.g. "Juniper-ex3400-24p-NW3620490200"
-      //   The serial is the last hyphen-delimited segment.
-      //   option 12 (hostname) also = serial number.
+      // option 12 (hostname) = serial number (sent by switch during DHCP).
       //
-      // Juniper ZTP (DHCP-based) uses option 66 + 67 to fetch a Junos config
-      // file via TFTP or HTTP. The Go API serves it at /api/v1/config/<serial>.
+      // Juniper ZTP uses option 150 (not 66) as the file server IP, then
+      // reads option 43 suboptions to find the config path and protocol:
+      //   suboption 01 = config file path  (type=1, len=15, "/juniper/config")
+      //   suboption 03 = transfer protocol (type=3, len=4,  "http")
+      //
+      // The device constructs: http://<option-150>/juniper/config (port 80)
+      // The API identifies the device by source IP → lease4.hostname (serial).
+      //
+      // Option 43 hex breakdown (csv-format false = raw binary TLV):
+      //   01 0f 2f6a756e697065722f636f6e666967  → sub-opt 1 len=15 "/juniper/config"
+      //   03 04 68747470                         → sub-opt 3 len=4  "http"
       {
         "name": "vendor-juniper",
         "test": "substring(option[60].hex, 0, 7) == 'Juniper'",
         "option-data": [
           {
-            "name": "tftp-server-name",
+            "name": "tftp-server-address",
             "data": "${ZTP_SERVER_IP}"
           },
           {
-            "name": "boot-file-name",
-            "data": "juniper/ztp.conf"
+            "name": "vendor-encapsulated-options",
+            "data": "010f2f6a756e697065722f636f6e666967030468747470",
+            "csv-format": false,
+            "always-send": true
           }
         ]
       },

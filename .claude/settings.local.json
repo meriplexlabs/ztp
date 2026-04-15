@@ -10,7 +10,8 @@
       "WebFetch(domain:community.cisco.com)",
       "WebFetch(domain:developer.cisco.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
-      "WebFetch(domain:api.github.com)"
+      "WebFetch(domain:api.github.com)",
+      "WebFetch(domain:www.juniper.net)"
     ]
   }
 }

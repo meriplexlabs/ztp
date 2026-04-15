@@ -64,6 +64,7 @@ func main() {
 	terminalH := handlers.NewTerminalHandler(pool, conf.JWTSecret)
 	settingsH := handlers.NewSettingsHandler(pool)
 	pnpH      := handlers.NewPnPHandler(pool, conf.RendererURL)
+	juniperH  := handlers.NewJuniperHandler(pool, conf.RendererURL)
 
 	// Router
 	r := chi.NewRouter()
@@ -101,6 +102,9 @@ func main() {
 	// ─── Device terminal (token auth via query param — opened in browser window) ─
 	r.Get("/api/v1/devices/{id}/terminal",    terminalH.ServeHTML)
 	r.Get("/api/v1/devices/{id}/terminal/ws", terminalH.ServeWS)
+
+	// ─── Juniper ZTP (unauthenticated — called by devices) ─────────────────────
+	r.Get("/juniper/config", juniperH.ZTPConfig)
 
 	// ─── Cisco PnP (unauthenticated — called by devices) ───────────────────────
 	r.Get("/pnp/HELLO", pnpH.Hello)
