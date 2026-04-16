@@ -35,7 +35,7 @@ const jinjaLanguage = StreamLanguage.define<JinjaState>({
       if (stream.eatSpace()) return null
       if (stream.match(/^-?\s*/)) return null
       const kw = stream.match(/^[a-z_]+/)
-      if (kw) {
+      if (kw && kw !== true) {
         return JINJA_KEYWORDS.includes(kw[0]) ? 'keyword' : 'variableName'
       }
       if (stream.match(/^["'](?:[^"'\\]|\\.)*["']/)) return 'string'
