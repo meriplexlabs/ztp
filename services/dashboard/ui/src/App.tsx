@@ -5,6 +5,7 @@ import Layout from '@/components/Layout'
 import LoginPage from '@/pages/LoginPage'
 import DevicesPage from '@/pages/DevicesPage'
 import TemplatesPage from '@/pages/TemplatesPage'
+import ProfilesPage from '@/pages/ProfilesPage'
 import LeasesPage from '@/pages/LeasesPage'
 import EventsPage from '@/pages/EventsPage'
 import SettingsPage from '@/pages/SettingsPage'
@@ -36,6 +37,7 @@ export default function App() {
         <Route index element={<Navigate to="/devices" replace />} />
         <Route path="devices" element={<DevicesPage />} />
         <Route path="templates" element={<TemplatesPage />} />
+        <Route path="profiles" element={<ProfilesPage />} />
         <Route path="leases" element={<LeasesPage />} />
         <Route path="events" element={<EventsPage />} />
         <Route path="settings" element={<SettingsPage />} />

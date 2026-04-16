@@ -72,6 +72,7 @@ func main() {
 	pnpH      := handlers.NewPnPHandler(pool, conf.RendererURL)
 	juniperH  := handlers.NewJuniperHandler(pool, conf.RendererURL)
 	arubaH    := handlers.NewArubaHandler(pool, conf.RendererURL)
+	inventoryH := handlers.NewInventoryHandler(pool)
 
 	// Router
 	r := chi.NewRouter()
@@ -167,6 +168,9 @@ func main() {
 		// DHCP (Kea proxy)
 		r.Get("/api/v1/leases",       keaH.GetLeases)
 		r.Get("/api/v1/dhcp/stats",   keaH.GetStats)
+
+		// Inventory
+		r.Get("/api/v1/inventory", inventoryH.List)
 
 		// Password change (any authenticated user)
 		r.Put("/api/v1/users/me/password", handlers.ChangePassword(pool))

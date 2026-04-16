@@ -1,6 +1,6 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import {
-  Server, FileCode2, Network, ScrollText, Settings, LogOut, Router,
+  Server, FileCode2, Network, ScrollText, Settings, LogOut, Router, Users,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { cn } from '@/lib/utils'
@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils'
 const nav = [
   { to: '/devices',   label: 'Devices',   icon: Server },
   { to: '/templates', label: 'Templates', icon: FileCode2 },
+  { to: '/profiles',  label: 'Profiles',  icon: Users },
   { to: '/leases',    label: 'DHCP Leases', icon: Network },
   { to: '/events',    label: 'Events',    icon: ScrollText },
   { to: '/settings',  label: 'Settings',  icon: Settings },
