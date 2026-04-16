@@ -252,7 +252,7 @@
           "options": [
             {
               "code": 67,
-              "add": "if(substring(option[60].hex, 0, 7) == 'Juniper', concat('juniper/', option[12].hex, '/config'), '')"
+              "add": "ifelse(substring(option[60].hex, 0, 7) == 'Juniper', concat('juniper/', option[12].hex, '/config'), '')"
             }
           ]
         }
