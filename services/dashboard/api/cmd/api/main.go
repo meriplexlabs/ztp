@@ -67,7 +67,8 @@ func main() {
 	eventH    := handlers.NewEventHandler(pool)
 	keaH      := handlers.NewKeaHandler(pool, conf.KeaCtrlURL)
 	terminalH := handlers.NewTerminalHandler(pool, conf.JWTSecret)
-	settingsH := handlers.NewSettingsHandler(pool)
+	settingsH  := handlers.NewSettingsHandler(pool)
+	customerH  := handlers.NewCustomerHandler(pool)
 	pnpH      := handlers.NewPnPHandler(pool, conf.RendererURL)
 	juniperH  := handlers.NewJuniperHandler(pool, conf.RendererURL)
 	arubaH    := handlers.NewArubaHandler(pool, conf.RendererURL)
@@ -135,7 +136,8 @@ func main() {
 		r.Get("/api/v1/devices/{id}",         deviceH.Get)
 		r.Put("/api/v1/devices/{id}",         deviceH.Update)
 		r.Delete("/api/v1/devices/{id}",      deviceH.Delete)
-		r.Get("/api/v1/devices/{id}/config",  deviceH.GetConfig)
+		r.Get("/api/v1/devices/{id}/config",         deviceH.GetConfig)
+			r.Get("/api/v1/devices/{id}/running-config", deviceH.RunningConfig)
 
 		// Templates
 		r.Get("/api/v1/templates",             templateH.List)
@@ -145,6 +147,12 @@ func main() {
 		r.Get("/api/v1/templates/{id}",        templateH.Get)
 		r.Put("/api/v1/templates/{id}",        templateH.Update)
 		r.Delete("/api/v1/templates/{id}",     templateH.Delete)
+
+		// Customers
+		r.Get("/api/v1/customers",         customerH.List)
+		r.Post("/api/v1/customers",        customerH.Create)
+		r.Put("/api/v1/customers/{id}",    customerH.Update)
+		r.Delete("/api/v1/customers/{id}", customerH.Delete)
 
 		// Profiles
 		r.Get("/api/v1/profiles",          profileH.List)

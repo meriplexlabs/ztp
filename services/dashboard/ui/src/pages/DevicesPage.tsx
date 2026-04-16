@@ -44,22 +44,35 @@ function terminalUrl(deviceId: string) {
   return `${base}/api/v1/devices/${deviceId}/terminal?token=${encodeURIComponent(token)}`
 }
 
-async function downloadConfig(deviceId: string, filename: string) {
+async function fetchTextEndpoint(path: string): Promise<string> {
   const token = localStorage.getItem('ztp_token') ?? ''
   const base  = import.meta.env.VITE_API_URL ?? ''
-  const res = await fetch(`${base}/api/v1/devices/${deviceId}/config`, {
+  const res = await fetch(`${base}${path}`, {
     headers: { Authorization: `Bearer ${token}` },
   })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }))
     throw new Error(err.error || res.statusText)
   }
-  const text = await res.text()
+  return res.text()
+}
+
+async function downloadConfig(deviceId: string, filename: string) {
+  const text = await fetchTextEndpoint(`/api/v1/devices/${deviceId}/config`)
+  triggerDownload(text, `${filename}-deployed.cfg`)
+}
+
+async function downloadRunningConfig(deviceId: string, filename: string) {
+  const text = await fetchTextEndpoint(`/api/v1/devices/${deviceId}/running-config`)
+  triggerDownload(text, `${filename}-running.cfg`)
+}
+
+function triggerDownload(text: string, filename: string) {
   const blob = new Blob([text], { type: 'text/plain' })
   const url  = URL.createObjectURL(blob)
   const a    = document.createElement('a')
   a.href     = url
-  a.download = `${filename}.cfg`
+  a.download = filename
   a.click()
   URL.revokeObjectURL(url)
 }
@@ -135,7 +148,8 @@ function DeviceDrawer({
     Object.entries(device.variables ?? {}).map(([k, v]) => [k, String(v)])
   )
   const [error,       setError]       = useState<string | null>(null)
-  const [downloading, setDownloading] = useState(false)
+  const [downloading,        setDownloading]        = useState(false)
+  const [downloadingRunning, setDownloadingRunning] = useState(false)
 
   const lease = leases.find(l =>
     (device.hostname && l.hostname === device.hostname) ||
@@ -183,6 +197,19 @@ function DeviceDrawer({
       setError(e instanceof Error ? e.message : 'Download failed')
     } finally {
       setDownloading(false)
+    }
+  }
+
+  async function handleDownloadRunning() {
+    setDownloadingRunning(true)
+    setError(null)
+    try {
+      const name = device.hostname ?? device.serial ?? device.id
+      await downloadRunningConfig(device.id, name)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to pull running config')
+    } finally {
+      setDownloadingRunning(false)
     }
   }
 
@@ -349,13 +376,22 @@ function DeviceDrawer({
               <button
                 onClick={handleDownload}
                 disabled={downloading}
-                title="Download rendered config"
+                title="Download deployed (rendered) config"
                 className="flex items-center gap-1.5 text-sm px-3 py-2 rounded border hover:bg-accent disabled:opacity-50"
               >
                 <Download className="h-4 w-4" />
-                {downloading ? 'Downloading…' : 'Config'}
+                {downloading ? '…' : 'Deployed'}
               </button>
             )}
+            <button
+              onClick={handleDownloadRunning}
+              disabled={downloadingRunning}
+              title="Pull running config from device via SSH"
+              className="flex items-center gap-1.5 text-sm px-3 py-2 rounded border hover:bg-accent disabled:opacity-50"
+            >
+              <Download className="h-4 w-4" />
+              {downloadingRunning ? '…' : 'Running'}
+            </button>
             {lease?.ip_address && (
               <button
                 onClick={() => { onClose(); onTerminal(device) }}

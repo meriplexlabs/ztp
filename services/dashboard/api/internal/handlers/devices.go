@@ -4,12 +4,16 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/crypto/ssh"
+
 	dbpkg "github.com/ztp/api/internal/db"
 	"github.com/ztp/api/internal/models"
 )
@@ -130,6 +134,115 @@ func (h *DeviceHandler) GetConfig(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, config)
 	}
+}
+
+// RunningConfig GET /api/v1/devices/{id}/running-config
+// SSHes to the device and returns its current running configuration.
+func (h *DeviceHandler) RunningConfig(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid device ID")
+		return
+	}
+	ctx := r.Context()
+	device, err := dbpkg.GetDevice(ctx, h.pool, id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "device not found")
+		return
+	}
+
+	// Resolve management IP (same strategy as terminal handler)
+	var mgmtIP string
+	ipQuery := `
+		SELECT
+			((address >> 24) & 255)::text || '.' ||
+			((address >> 16) & 255)::text || '.' ||
+			((address >> 8)  & 255)::text || '.' ||
+			(address         & 255)::text
+		FROM lease4
+		WHERE %s AND state = 0
+		LIMIT 1
+	`
+	if device.Hostname != nil {
+		row := h.pool.QueryRow(ctx, fmt.Sprintf(ipQuery, "LOWER(hostname) = LOWER($1)"), *device.Hostname)
+		_ = row.Scan(&mgmtIP)
+	}
+	if mgmtIP == "" && device.Serial != nil {
+		row := h.pool.QueryRow(ctx, fmt.Sprintf(ipQuery, "LOWER(hostname) = LOWER($1)"), *device.Serial)
+		_ = row.Scan(&mgmtIP)
+	}
+	if mgmtIP == "" && device.MAC != nil {
+		mac := strings.ReplaceAll(*device.MAC, ":", "")
+		row := h.pool.QueryRow(ctx, fmt.Sprintf(ipQuery, "encode(hwaddr, 'hex') = $1"), mac)
+		_ = row.Scan(&mgmtIP)
+	}
+	if mgmtIP == "" {
+		writeError(w, http.StatusBadRequest, "no active DHCP lease — management IP unknown")
+		return
+	}
+
+	// Resolve SSH credentials
+	merged := map[string]any{}
+	if device.ProfileID != nil {
+		if profile, err := dbpkg.GetProfile(ctx, h.pool, *device.ProfileID); err == nil {
+			for k, v := range profile.Variables {
+				merged[k] = v
+			}
+		}
+	}
+	for k, v := range device.Variables {
+		merged[k] = v
+	}
+	username := "admin"
+	if u, _ := merged["ssh_username"].(string); u != "" {
+		username = u
+	}
+	password, _ := merged["local_password"].(string)
+	if password == "" {
+		writeError(w, http.StatusBadRequest, "local_password not set on device or profile")
+		return
+	}
+
+	// Determine show command by vendor
+	showCmd := "show running-config"
+	if device.VendorClass != nil {
+		switch *device.VendorClass {
+		case "juniper":
+			showCmd = "show configuration | no-more"
+		case "aruba":
+			showCmd = "show running-config"
+		}
+	}
+
+	sshCfg := &ssh.ClientConfig{
+		User:            username,
+		Auth:            []ssh.AuthMethod{ssh.Password(password)},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         15 * time.Second,
+	}
+	client, err := ssh.Dial("tcp", net.JoinHostPort(mgmtIP, "22"), sshCfg)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "SSH connection failed: "+err.Error())
+		return
+	}
+	defer client.Close()
+
+	session, err := client.NewSession()
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "SSH session failed: "+err.Error())
+		return
+	}
+	defer session.Close()
+
+	out, err := session.Output(showCmd)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "command failed: "+err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	w.Write(out)
 }
 
 // ZTPConfig GET /api/v1/config/{identifier}

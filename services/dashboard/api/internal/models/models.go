@@ -78,12 +78,23 @@ type TemplateVar struct {
 	Default     *string `json:"default,omitempty"`
 }
 
+// ─── Customer ─────────────────────────────────────────────────────────────────
+
+type Customer struct {
+	ID          uuid.UUID `json:"id"`
+	Name        string    `json:"name"`
+	Description *string   `json:"description,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
 // ─── Device Profile ───────────────────────────────────────────────────────────
 
 type DeviceProfile struct {
 	ID          uuid.UUID      `json:"id"`
 	Name        string         `json:"name"`
 	Description *string        `json:"description,omitempty"`
+	CustomerID  *uuid.UUID     `json:"customer_id,omitempty"`
 	TemplateID  *uuid.UUID     `json:"template_id,omitempty"`
 	Variables   map[string]any `json:"variables"`
 	CreatedBy   *uuid.UUID     `json:"created_by,omitempty"`

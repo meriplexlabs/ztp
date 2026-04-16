@@ -90,10 +90,19 @@ export interface TemplateVar {
   default?: string
 }
 
+export interface Customer {
+  id: string
+  name: string
+  description?: string
+  created_at: string
+  updated_at: string
+}
+
 export interface DeviceProfile {
   id: string
   name: string
   description?: string
+  customer_id?: string
   template_id?: string
   variables: Record<string, unknown>
   created_at: string
