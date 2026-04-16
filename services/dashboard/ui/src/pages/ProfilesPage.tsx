@@ -205,14 +205,29 @@ function ProfileForm({
               </div>
               <div className="space-y-2">
                 {vars.map(([k, v], i) => (
-                  <div key={i} className="flex gap-2 items-center">
+                  <div key={i} className="flex gap-2 items-start">
                     <input value={k} onChange={e => setVars(vs => vs.map((p, j) => j === i ? [e.target.value, p[1]] : p))}
                       placeholder="key"
-                      className="flex-1 text-xs border rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-primary/50" />
-                    <input value={v} onChange={e => setVars(vs => vs.map((p, j) => j === i ? [p[0], e.target.value] : p))}
+                      className="w-32 shrink-0 text-xs border rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-primary/50" />
+                    <textarea
+                      value={v}
+                      onChange={e => {
+                        const el = e.target
+                        el.style.height = 'auto'
+                        el.style.height = el.scrollHeight + 'px'
+                        setVars(vs => vs.map((p, j) => j === i ? [p[0], e.target.value] : p))
+                      }}
+                      onFocus={e => {
+                        const el = e.target
+                        el.style.height = 'auto'
+                        el.style.height = el.scrollHeight + 'px'
+                      }}
                       placeholder="value"
-                      className="flex-1 text-xs border rounded px-2 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-primary/50" />
-                    <button onClick={() => removeVar(i)} className="text-muted-foreground hover:text-destructive">
+                      rows={1}
+                      spellCheck={false}
+                      className="flex-1 text-xs border rounded px-2 py-1.5 font-mono resize-none overflow-hidden focus:outline-none focus:ring-1 focus:ring-primary/50"
+                    />
+                    <button onClick={() => removeVar(i)} className="mt-1.5 text-muted-foreground hover:text-destructive shrink-0">
                       <X className="h-3.5 w-3.5" />
                     </button>
                   </div>
