@@ -1,145 +1,56 @@
-import { useCallback, useEffect, useState } from 'react'
-import CodeMirror from '@uiw/react-codemirror'
-import { StreamLanguage } from '@codemirror/language'
-import { autocompletion, type CompletionContext } from '@codemirror/autocomplete'
-import { oneDark } from '@codemirror/theme-one-dark'
+import Editor from 'react-simple-code-editor'
+import Prism from 'prismjs'
+import 'prismjs/components/prism-markup-templating'
+import 'prismjs/components/prism-twig'
 
-// ── Jinja2 stream language ─────────────────────────────────────────────────────
+// Minimal dark theme matching the app's monospace style
+const THEME = `
+.jinja-editor { background:#1e1e2e; color:#cdd6f4; font-size:0.75rem; font-family:ui-monospace,monospace; min-height:24rem; border-radius:0.375rem; }
+.jinja-editor .token.tag,.jinja-editor .token.delimiter { color:#89b4fa; }
+.jinja-editor .token.keyword { color:#cba6f7; font-weight:600; }
+.jinja-editor .token.variable { color:#89dceb; }
+.jinja-editor .token.string { color:#a6e3a1; }
+.jinja-editor .token.number { color:#fab387; }
+.jinja-editor .token.comment { color:#585b70; font-style:italic; }
+.jinja-editor .token.operator { color:#89b4fa; }
+.jinja-editor .token.punctuation { color:#cdd6f4; }
+`
 
-type JinjaMode = 'text' | 'tag' | 'var' | 'comment'
-type JinjaState = { mode: JinjaMode }
-
-const JINJA_KEYWORDS = [
-  'if', 'else', 'elif', 'endif',
-  'for', 'endfor', 'recursive',
-  'block', 'endblock', 'extends', 'super',
-  'include', 'import', 'from', 'as',
-  'macro', 'endmacro', 'call', 'endcall',
-  'filter', 'endfilter',
-  'set', 'do', 'with', 'endwith',
-  'raw', 'endraw', 'not', 'and', 'or',
-  'in', 'is', 'none', 'true', 'false', 'loop', 'namespace',
-]
-
-const jinjaLanguage = StreamLanguage.define<JinjaState>({
-  startState: (): JinjaState => ({ mode: 'text' }),
-  copyState: (s): JinjaState => ({ mode: s.mode }),
-  blankLine(state) { state.mode = 'text' },
-
-  token(stream, state): string | null {
-    if (state.mode === 'comment') {
-      if (stream.match('#}')) { state.mode = 'text'; return 'comment' }
-      stream.next()
-      return 'comment'
-    }
-
-    if (state.mode === 'tag') {
-      if (stream.match(/%}/)) { state.mode = 'text'; return 'meta' }
-      if (stream.eatSpace()) return null
-      const kw = stream.match(/^-?[a-z_]+/)
-      if (kw !== true && kw) {
-        return JINJA_KEYWORDS.includes(kw[0]) ? 'keyword' : 'variableName'
-      }
-      if (stream.match(/^["'](?:[^"'\\]|\\.)*["']/)) return 'string'
-      if (stream.match(/^\d+/)) return 'number'
-      if (stream.match(/^[|.,:()[\]{}+\-*/%=!<>~-]/)) return 'operator'
-      stream.next()
-      return null
-    }
-
-    if (state.mode === 'var') {
-      if (stream.match(/}}/)) { state.mode = 'text'; return 'meta' }
-      if (stream.eatSpace()) return null
-      if (stream.match(/^[a-zA-Z_][\w.]*/)) return 'variableName'
-      if (stream.match(/^["'](?:[^"'\\]|\\.)*["']/)) return 'string'
-      if (stream.match(/^[|.,:()[\]{}+\-*/%=!<>~-]/)) return 'operator'
-      stream.next()
-      return null
-    }
-
-    // text mode
-    if (stream.match('{#')) { state.mode = 'comment'; return 'comment' }
-    if (stream.match(/^\{%-?/)) { state.mode = 'tag'; return 'meta' }
-    if (stream.match(/^\{\{-?/)) { state.mode = 'var'; return 'meta' }
-
-    while (stream.next() !== null) {
-      if (stream.peek() === '{') break
-    }
-    return null
-  },
-})
-
-// ── Autocomplete ───────────────────────────────────────────────────────────────
-
-const TAG_COMPLETIONS = [
-  { label: '{% if %}',      apply: '{% if  %}\n{% endif %}',          detail: 'if / endif' },
-  { label: '{% for %}',     apply: '{% for item in items %}\n{% endfor %}', detail: 'for loop' },
-  { label: '{% block %}',   apply: '{% block name %}\n{% endblock %}', detail: 'block' },
-  { label: '{% extends %}', apply: "{% extends '' %}",                 detail: 'inheritance' },
-  { label: '{% include %}', apply: "{% include '' %}",                 detail: 'include' },
-  { label: '{% set %}',     apply: '{% set var = value %}',            detail: 'set variable' },
-  { label: '{% macro %}',   apply: '{% macro name(args) %}\n{% endmacro %}', detail: 'macro' },
-  { label: '{% else %}',    apply: '{% else %}',                       detail: 'else' },
-  { label: '{% elif %}',    apply: '{% elif  %}',                      detail: 'elif' },
-  { label: '{% endif %}',   apply: '{% endif %}',                      detail: 'end if' },
-  { label: '{% endfor %}',  apply: '{% endfor %}',                     detail: 'end for' },
-]
-
-const KW_COMPLETIONS = JINJA_KEYWORDS.map(k => ({ label: k, type: 'keyword' as const }))
-
-function jinjaCompletions(ctx: CompletionContext) {
-  const tagOpen = ctx.matchBefore(/\{%-?\s*\w*/)
-  if (tagOpen) {
-    return { from: tagOpen.from, options: TAG_COMPLETIONS.map(o => ({ ...o, type: 'function' as const })) }
-  }
-  const word = ctx.matchBefore(/\w+/)
-  if (!word || (word.from === word.to && !ctx.explicit)) return null
-  return { from: word.from, options: KW_COMPLETIONS }
+let injected = false
+function injectTheme() {
+  if (injected) return
+  injected = true
+  const el = document.createElement('style')
+  el.textContent = THEME
+  document.head.appendChild(el)
 }
 
-// ── Component ──────────────────────────────────────────────────────────────────
+function highlight(code: string) {
+  injectTheme()
+  return Prism.highlight(code, Prism.languages['twig'], 'twig')
+}
 
 interface JinjaEditorProps {
   value: string
   onChange: (v: string) => void
-  minHeight?: string
   placeholder?: string
 }
 
-// Module-level constants — created once, never recreated on re-render
-const JINJA_EXTENSIONS = [
-  jinjaLanguage,
-  autocompletion({ override: [jinjaCompletions], defaultKeymap: true }),
-]
-
-const BASIC_SETUP = {
-  lineNumbers: true,
-  foldGutter: false,
-  highlightActiveLine: true,
-  highlightSelectionMatches: true,
-  tabSize: 2,
-}
-
-export default function JinjaEditor({ value, onChange, minHeight = '24rem', placeholder }: JinjaEditorProps) {
-  const handleChange = useCallback((v: string) => onChange(v), [onChange])
-  const [ready, setReady] = useState(false)
-  useEffect(() => { const t = setTimeout(() => setReady(true), 50); return () => clearTimeout(t) }, [])
-
-  if (!ready) return (
-    <textarea readOnly value={value} style={{ minHeight, fontSize: '0.75rem' }}
-      className="w-full font-mono border rounded px-3 py-2 bg-muted/30 resize-y" />
-  )
-
+export default function JinjaEditor({ value, onChange, placeholder }: JinjaEditorProps) {
   return (
-    <CodeMirror
-      value={value}
-      onChange={handleChange}
-      theme={oneDark}
-      placeholder={placeholder}
-      extensions={JINJA_EXTENSIONS}
-      basicSetup={BASIC_SETUP}
-      style={{ minHeight, fontSize: '0.75rem' }}
-      className="border rounded overflow-hidden focus-within:ring-2 focus-within:ring-primary/50"
-    />
+    <div className="border rounded overflow-hidden focus-within:ring-2 focus-within:ring-primary/50">
+      <Editor
+        value={value}
+        onValueChange={onChange}
+        highlight={highlight}
+        padding={10}
+        tabSize={2}
+        insertSpaces
+        placeholder={placeholder}
+        className="jinja-editor"
+        style={{ minHeight: '24rem', fontFamily: 'ui-monospace, monospace', fontSize: '0.75rem' }}
+        textareaClassName="focus:outline-none"
+      />
+    </div>
   )
 }
