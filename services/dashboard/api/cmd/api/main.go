@@ -140,7 +140,8 @@ func main() {
 		// Templates
 		r.Get("/api/v1/templates",             templateH.List)
 		r.Post("/api/v1/templates",            templateH.Create)
-		r.Get("/api/v1/templates/files",       templateH.ListRendererTemplates)
+		r.Get("/api/v1/templates/files",            templateH.ListRendererTemplates)
+			r.Get("/api/v1/templates/{id}/variables",   templateH.Variables)
 		r.Get("/api/v1/templates/{id}",        templateH.Get)
 		r.Put("/api/v1/templates/{id}",        templateH.Update)
 		r.Delete("/api/v1/templates/{id}",     templateH.Delete)

@@ -21,6 +21,7 @@ from jinja2 import (
     TemplateNotFound,
     TemplateSyntaxError,
     UndefinedError,
+    meta as jinja_meta,
 )
 from pydantic import BaseModel, field_validator
 
@@ -125,6 +126,15 @@ class RenderResponse(BaseModel):
     template_name: str
 
 
+class VariablesRequest(BaseModel):
+    template_name: str | None = None
+    content: str | None = None
+
+
+class VariablesResponse(BaseModel):
+    variables: list[str]
+
+
 class ValidateRequest(BaseModel):
     content: str
     variables: dict[str, Any] = {}
@@ -208,6 +218,40 @@ def render_template(req: RenderRequest):
         )
 
     return RenderResponse(config=rendered, template_name=req.template_name)
+
+
+@app.post("/variables", response_model=VariablesResponse)
+def extract_variables(req: VariablesRequest):
+    """
+    Return all undeclared variable names used in a template.
+    Accepts either raw content or a template_name (resolved same as /render).
+    """
+    if req.content:
+        raw = req.content
+    elif req.template_name:
+        raw = fetch_template_from_db(req.template_name)
+        if raw is None:
+            template_path = req.template_name + ".cfg"
+            try:
+                source, _, _ = jinja_env.loader.get_source(jinja_env, template_path)
+                raw = source
+            except TemplateNotFound as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Template '{req.template_name}' not found",
+                ) from exc
+    else:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Provide content or template_name")
+
+    try:
+        ast = jinja_env.parse(raw)
+        variables = sorted(jinja_meta.find_undeclared_variables(ast))
+    except TemplateSyntaxError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Template syntax error: {exc.message}",
+        ) from exc
+    return VariablesResponse(variables=variables)
 
 
 @app.post("/validate", response_model=ValidateResponse)

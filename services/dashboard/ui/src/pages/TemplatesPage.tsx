@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, type ConfigTemplate, type DeviceProfile } from '@/lib/api'
-import { FileCode2, Plus, Trash2, X } from 'lucide-react'
+import { FileCode2, Plus, Trash2, X, Wand2 } from 'lucide-react'
 
 const VENDOR_COLORS: Record<string, string> = {
   cisco:    'bg-blue-100 text-blue-700',
@@ -150,13 +150,14 @@ function ProfileForm({
   onClose: () => void
 }) {
   const qc = useQueryClient()
-  const [name, setName] = useState(initial?.name ?? '')
-  const [desc, setDesc] = useState(initial?.description ?? '')
+  const [name,       setName]       = useState(initial?.name ?? '')
+  const [desc,       setDesc]       = useState(initial?.description ?? '')
   const [templateId, setTemplateId] = useState(initial?.template_id ?? '')
   const [vars, setVars] = useState<[string, string][]>(
     Object.entries(initial?.variables ?? {}).map(([k, v]) => [k, String(v)])
   )
-  const [error, setError] = useState<string | null>(null)
+  const [error,        setError]        = useState<string | null>(null)
+  const [discovering,  setDiscovering]  = useState(false)
 
   const save = useMutation({
     mutationFn: () => {
@@ -183,6 +184,26 @@ function ProfileForm({
 
   function addVar() { setVars(v => [...v, ['', '']]) }
   function removeVar(i: number) { setVars(v => v.filter((_, j) => j !== i)) }
+
+  async function discoverVars() {
+    if (!templateId) return
+    setDiscovering(true)
+    setError(null)
+    try {
+      const result = await api.get<{ variables: string[] }>(`/api/v1/templates/${templateId}/variables`)
+      setVars(current => {
+        const existing = new Set(current.map(([k]) => k))
+        const newVars = result.variables
+          .filter(v => !existing.has(v))
+          .map((v): [string, string] => [v, ''])
+        return [...current, ...newVars]
+      })
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to discover variables')
+    } finally {
+      setDiscovering(false)
+    }
+  }
 
   return (
     <>
@@ -219,9 +240,22 @@ function ProfileForm({
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label className="text-xs font-medium text-muted-foreground">Default Variables</label>
-                <button onClick={addVar} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-                  <Plus className="h-3 w-3" /> Add
-                </button>
+                <div className="flex items-center gap-2">
+                  {templateId && (
+                    <button
+                      onClick={discoverVars}
+                      disabled={discovering}
+                      className="flex items-center gap-1 text-xs text-primary hover:opacity-80 disabled:opacity-50"
+                      title="Auto-populate variables from template"
+                    >
+                      <Wand2 className="h-3 w-3" />
+                      {discovering ? 'Discovering…' : 'Discover from template'}
+                    </button>
+                  )}
+                  <button onClick={addVar} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+                    <Plus className="h-3 w-3" /> Add
+                  </button>
+                </div>
               </div>
               <div className="space-y-2">
                 {vars.map(([k, v], i) => (

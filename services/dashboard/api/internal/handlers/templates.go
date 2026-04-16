@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"bytes"
+	"encoding/json"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -104,6 +106,58 @@ func (h *TemplateHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// Variables GET /api/v1/templates/{id}/variables
+// Calls the renderer to extract all Jinja2 variable names used in the template.
+func (h *TemplateHandler) Variables(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid template ID")
+		return
+	}
+	tmpl, err := dbpkg.GetTemplate(r.Context(), h.pool, id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "template not found")
+		return
+	}
+
+	var payload map[string]any
+	if tmpl.Content != nil && *tmpl.Content != "" {
+		payload = map[string]any{"content": *tmpl.Content}
+	} else {
+		name := tmpl.Vendor + "/" + tmpl.OSType
+		if tmpl.FilePath != nil {
+			fp := *tmpl.FilePath
+			if len(fp) > 4 && fp[len(fp)-4:] == ".cfg" {
+				fp = fp[:len(fp)-4]
+			}
+			name = fp
+		}
+		payload = map[string]any{"template_name": name}
+	}
+
+	body, _ := json.Marshal(payload)
+	resp, err := http.Post(h.rendererURL+"/variables", "application/json", bytes.NewReader(body))
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "renderer unreachable")
+		return
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Variables []string `json:"variables"`
+		Detail    string   `json:"detail"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		writeError(w, http.StatusBadGateway, "invalid renderer response")
+		return
+	}
+	if resp.StatusCode != http.StatusOK {
+		writeError(w, http.StatusBadGateway, "renderer error: "+result.Detail)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"variables": result.Variables})
 }
 
 // ListRendererTemplates GET /api/v1/templates/files
