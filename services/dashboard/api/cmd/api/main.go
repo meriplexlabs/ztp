@@ -17,6 +17,7 @@ import (
 	"github.com/ztp/api/internal/auth"
 	cfg "github.com/ztp/api/internal/config"
 	dbpkg "github.com/ztp/api/internal/db"
+	"github.com/ztp/api/internal/discovery"
 	"github.com/ztp/api/internal/handlers"
 )
 
@@ -39,6 +40,10 @@ func main() {
 	}
 	defer pool.Close()
 	log.Info().Msg("Connected to database")
+
+	// Background: auto-register devices that appear in lease4 but have no device record.
+	// Covers TFTP-only devices (e.g. HP ProCurve) that never call the HTTP ZTP endpoint.
+	go discovery.RunLeasePoller(ctx, pool, 30*time.Second)
 
 	// OIDC provider (optional)
 	var oidcProvider *auth.OIDCProvider
