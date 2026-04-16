@@ -117,7 +117,7 @@
       // The API identifies the device by source IP → lease4.hostname (serial).
       //
       // Option 43 hex breakdown (csv-format false = raw binary TLV):
-      //   01 0f 2f6a756e697065722f636f6e666967  → sub-opt 1 len=15 "/juniper/config"
+      //   01 0e 6a756e697065722f636f6e666967    → sub-opt 1 len=14 "juniper/config"
       //   03 04 68747470                         → sub-opt 3 len=4  "http"
       {
         "name": "vendor-juniper",
@@ -129,7 +129,7 @@
           },
           {
             "name": "vendor-encapsulated-options",
-            "data": "010f2f6a756e697065722f636f6e666967030468747470",
+            "data": "010e6a756e697065722f636f6e666967030468747470",
             "csv-format": false,
             "always-send": true
           }
