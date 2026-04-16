@@ -362,8 +362,15 @@ function DeviceDrawer({
         </div>
 
         {/* Footer */}
-        <div className="border-t px-5 py-3 space-y-2 shrink-0">
-          {/* Row 1: downloads + connect */}
+        <div className="border-t px-5 py-3 flex items-center justify-between shrink-0">
+          <button
+            onClick={() => { if (confirm('Delete this device?')) del.mutate() }}
+            disabled={del.isPending}
+            title="Delete device"
+            className="p-1.5 text-destructive hover:opacity-80 disabled:opacity-50 rounded hover:bg-destructive/10"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
           <div className="flex items-center gap-2">
             {device.profile_id && (
               <button
@@ -388,35 +395,22 @@ function DeviceDrawer({
             {lease?.ip_address && (
               <button
                 onClick={() => { onClose(); onTerminal(device) }}
-                className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded border border-green-600 text-green-700 hover:bg-green-50"
+                title="Open terminal"
+                className="p-1.5 rounded border border-green-600 text-green-700 hover:bg-green-50"
               >
                 <Terminal className="h-4 w-4" />
-                Connect
               </button>
             )}
-          </div>
-          {/* Row 2: delete + cancel/save */}
-          <div className="flex items-center justify-between">
-            <button
-              onClick={() => { if (confirm('Delete this device?')) del.mutate() }}
-              disabled={del.isPending}
-              className="flex items-center gap-1.5 text-sm text-destructive hover:opacity-80 disabled:opacity-50"
-            >
-              <Trash2 className="h-4 w-4" />
-              Delete
+            <button onClick={onClose} className="text-sm px-3 py-1.5 rounded border hover:bg-accent">
+              Cancel
             </button>
-            <div className="flex gap-2">
-              <button onClick={onClose} className="text-sm px-4 py-1.5 rounded border hover:bg-accent">
-                Cancel
-              </button>
-              <button
-                onClick={handleSave}
-                disabled={save.isPending}
-                className="text-sm px-4 py-1.5 rounded bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
-              >
-                {save.isPending ? 'Saving…' : 'Save'}
-              </button>
-            </div>
+            <button
+              onClick={handleSave}
+              disabled={save.isPending}
+              className="text-sm px-4 py-1.5 rounded bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
+            >
+              {save.isPending ? 'Saving…' : 'Save'}
+            </button>
           </div>
         </div>
       </div>
