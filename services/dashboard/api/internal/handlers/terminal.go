@@ -2,8 +2,10 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -68,19 +70,31 @@ func (h *TerminalHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Resolve management IP from the active Kea lease (matched by hostname)
+	// Resolve management IP from the active Kea lease.
+	// Try hostname first, then serial (for devices like Juniper identified by serial),
+	// then MAC address as a final fallback.
 	var mgmtIP string
+	ipQuery := `
+		SELECT
+			((address >> 24) & 255)::text || '.' ||
+			((address >> 16) & 255)::text || '.' ||
+			((address >> 8)  & 255)::text || '.' ||
+			(address         & 255)::text
+		FROM lease4
+		WHERE %s AND state = 0
+		LIMIT 1
+	`
 	if device.Hostname != nil {
-		row := h.pool.QueryRow(ctx, `
-			SELECT
-				((address >> 24) & 255)::text || '.' ||
-				((address >> 16) & 255)::text || '.' ||
-				((address >> 8)  & 255)::text || '.' ||
-				(address         & 255)::text
-			FROM lease4
-			WHERE hostname = $1 AND state = 0
-			LIMIT 1
-		`, *device.Hostname)
+		row := h.pool.QueryRow(ctx, fmt.Sprintf(ipQuery, "LOWER(hostname) = LOWER($1)"), *device.Hostname)
+		_ = row.Scan(&mgmtIP)
+	}
+	if mgmtIP == "" && device.Serial != nil {
+		row := h.pool.QueryRow(ctx, fmt.Sprintf(ipQuery, "LOWER(hostname) = LOWER($1)"), *device.Serial)
+		_ = row.Scan(&mgmtIP)
+	}
+	if mgmtIP == "" && device.MAC != nil {
+		mac := strings.ReplaceAll(*device.MAC, ":", "")
+		row := h.pool.QueryRow(ctx, fmt.Sprintf(ipQuery, "encode(hwaddr, 'hex') = $1"), mac)
 		_ = row.Scan(&mgmtIP)
 	}
 	if mgmtIP == "" {
