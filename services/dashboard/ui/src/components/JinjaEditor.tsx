@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import CodeMirror from '@uiw/react-codemirror'
 import { StreamLanguage } from '@codemirror/language'
 import { autocompletion, type CompletionContext } from '@codemirror/autocomplete'
@@ -106,10 +106,29 @@ interface JinjaEditorProps {
   placeholder?: string
 }
 
+// Module-level constants — created once, never recreated on re-render
+const JINJA_EXTENSIONS = [
+  jinjaLanguage,
+  autocompletion({ override: [jinjaCompletions], defaultKeymap: true }),
+]
+
+const BASIC_SETUP = {
+  lineNumbers: true,
+  foldGutter: false,
+  highlightActiveLine: true,
+  highlightSelectionMatches: true,
+  tabSize: 2,
+}
+
 export default function JinjaEditor({ value, onChange, minHeight = '24rem', placeholder }: JinjaEditorProps) {
-  const handleChange = useCallback((v: string) => {
-    onChange(v)
-  }, [onChange])
+  const handleChange = useCallback((v: string) => onChange(v), [onChange])
+  const [ready, setReady] = useState(false)
+  useEffect(() => { const t = setTimeout(() => setReady(true), 50); return () => clearTimeout(t) }, [])
+
+  if (!ready) return (
+    <textarea readOnly value={value} style={{ minHeight, fontSize: '0.75rem' }}
+      className="w-full font-mono border rounded px-3 py-2 bg-muted/30 resize-y" />
+  )
 
   return (
     <CodeMirror
@@ -117,17 +136,8 @@ export default function JinjaEditor({ value, onChange, minHeight = '24rem', plac
       onChange={handleChange}
       theme={oneDark}
       placeholder={placeholder}
-      extensions={[
-        jinjaLanguage,
-        autocompletion({ override: [jinjaCompletions], defaultKeymap: true }),
-      ]}
-      basicSetup={{
-        lineNumbers: true,
-        foldGutter: false,
-        highlightActiveLine: true,
-        highlightSelectionMatches: true,
-        tabSize: 2,
-      }}
+      extensions={JINJA_EXTENSIONS}
+      basicSetup={BASIC_SETUP}
       style={{ minHeight, fontSize: '0.75rem' }}
       className="border rounded overflow-hidden focus-within:ring-2 focus-within:ring-primary/50"
     />
