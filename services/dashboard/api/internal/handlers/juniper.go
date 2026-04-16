@@ -3,6 +3,7 @@ package handlers
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -31,7 +32,7 @@ func NewJuniperHandler(pool *pgxpool.Pool, rendererURL string) *JuniperHandler {
 // ZTPConfig handles GET /juniper/{serial}/config — unauthenticated, called by the device.
 func (h *JuniperHandler) ZTPConfig(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	serial := chi.URLParam(r, "serial")
+	serial := strings.ToLower(chi.URLParam(r, "serial"))
 
 	log.Info().Str("serial", serial).Msg("Juniper ZTP config request")
 
