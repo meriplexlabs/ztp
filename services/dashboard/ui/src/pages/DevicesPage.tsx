@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, type Device, type DeviceProfile, type DHCPLease } from '@/lib/api'
 import { formatRelative } from '@/lib/utils'
-import { Server, RefreshCw, X, Plus, Trash2, Terminal } from 'lucide-react'
+import { Server, RefreshCw, X, Plus, Trash2, Terminal, Download } from 'lucide-react'
 
 const STATUS_COLORS: Record<Device['status'], string> = {
   unknown:      'bg-gray-100 text-gray-700',
@@ -13,10 +13,55 @@ const STATUS_COLORS: Record<Device['status'], string> = {
   ignored:      'bg-gray-100 text-gray-500',
 }
 
+const STATUS_LABELS: Record<Device['status'], string> = {
+  unknown:      'Unknown',
+  discovered:   'Discovered',
+  provisioning: 'Provisioning',
+  provisioned:  'Provisioned',
+  failed:       'Failed',
+  ignored:      'Ignored',
+}
+
+const VENDOR_DISPLAY: Record<string, string> = {
+  cisco:    'Cisco',
+  juniper:  'Juniper',
+  aruba:    'Aruba / HP',
+  extreme:  'Extreme',
+  fortinet: 'Fortinet',
+}
+
+const ZTP_METHOD: Record<string, string> = {
+  cisco:    'Cisco PnP',
+  juniper:  'HTTP',
+  aruba:    'TFTP',
+  extreme:  'TFTP',
+  fortinet: 'TFTP',
+}
+
 function terminalUrl(deviceId: string) {
   const token = localStorage.getItem('ztp_token') ?? ''
   const base  = import.meta.env.VITE_API_URL ?? ''
   return `${base}/api/v1/devices/${deviceId}/terminal?token=${encodeURIComponent(token)}`
+}
+
+async function downloadConfig(deviceId: string, filename: string) {
+  const token = localStorage.getItem('ztp_token') ?? ''
+  const base  = import.meta.env.VITE_API_URL ?? ''
+  const res = await fetch(`${base}/api/v1/devices/${deviceId}/config`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }))
+    throw new Error(err.error || res.statusText)
+  }
+  const text = await res.text()
+  const blob = new Blob([text], { type: 'text/plain' })
+  const url  = URL.createObjectURL(blob)
+  const a    = document.createElement('a')
+  a.href     = url
+  a.download = `${filename}.cfg`
+  a.click()
+  URL.revokeObjectURL(url)
 }
 
 function TerminalOverlay({ device, onClose }: { device: Device; onClose: () => void }) {
@@ -83,12 +128,14 @@ function DeviceDrawer({
   onTerminal: (d: Device) => void
 }) {
   const qc = useQueryClient()
-  const [hostname, setHostname] = useState(device.hostname ?? '')
-  const [profileId, setProfileId] = useState(device.profile_id ?? '')
+  const [hostname,    setHostname]    = useState(device.hostname ?? '')
+  const [description, setDescription] = useState(device.description ?? '')
+  const [profileId,   setProfileId]   = useState(device.profile_id ?? '')
   const [vars, setVars] = useState<[string, string][]>(
     Object.entries(device.variables ?? {}).map(([k, v]) => [k, String(v)])
   )
-  const [error, setError] = useState<string | null>(null)
+  const [error,       setError]       = useState<string | null>(null)
+  const [downloading, setDownloading] = useState(false)
 
   const lease = leases.find(l =>
     (device.hostname && l.hostname === device.hostname) ||
@@ -119,14 +166,28 @@ function DeviceDrawer({
     const variables = Object.fromEntries(vars.filter(([k]) => k.trim() !== ''))
     save.mutate({
       ...device,
-      hostname: hostname || undefined,
-      profile_id: profileId || undefined,
+      hostname:    hostname    || undefined,
+      description: description || undefined,
+      profile_id:  profileId  || undefined,
       variables,
     })
   }
 
-  function addVar() { setVars(v => [...v, ['', '']]) }
-  function removeVar(i: number) { setVars(v => v.filter((_, j) => j !== i)) }
+  async function handleDownload() {
+    setDownloading(true)
+    setError(null)
+    try {
+      const name = device.hostname ?? device.serial ?? device.id
+      await downloadConfig(device.id, name)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Download failed')
+    } finally {
+      setDownloading(false)
+    }
+  }
+
+  function addVar()              { setVars(v => [...v, ['', '']]) }
+  function removeVar(i: number)  { setVars(v => v.filter((_, j) => j !== i)) }
   function setVarKey(i: number, k: string) {
     setVars(v => v.map((pair, j) => j === i ? [k, pair[1]] : pair))
   }
@@ -171,8 +232,16 @@ function DeviceDrawer({
             <div>
               <p className="text-xs text-muted-foreground mb-1">Status</p>
               <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[device.status]}`}>
-                {device.status}
+                {STATUS_LABELS[device.status]}
               </span>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground mb-1">Vendor</p>
+              <p className="text-xs">{device.vendor_class ? (VENDOR_DISPLAY[device.vendor_class] ?? device.vendor_class) : '—'}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground mb-1">ZTP Method</p>
+              <p className="text-xs">{device.vendor_class ? (ZTP_METHOD[device.vendor_class] ?? '—') : '—'}</p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground mb-1">Last Seen</p>
@@ -192,6 +261,18 @@ function DeviceDrawer({
               value={hostname}
               onChange={e => setHostname(e.target.value)}
               placeholder="e.g. sw-core-01"
+              className="w-full text-sm border rounded px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/50"
+            />
+          </div>
+
+          {/* Model / Description */}
+          <div>
+            <label className="block text-xs font-medium text-muted-foreground mb-1">Model / Description</label>
+            <input
+              type="text"
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+              placeholder="e.g. EX2300-24P"
               className="w-full text-sm border rounded px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/50"
             />
           </div>
@@ -264,10 +345,21 @@ function DeviceDrawer({
             Delete
           </button>
           <div className="flex gap-2">
-            {device.status === 'provisioned' && lease?.ip_address && (
+            {device.profile_id && (
+              <button
+                onClick={handleDownload}
+                disabled={downloading}
+                title="Download rendered config"
+                className="flex items-center gap-1.5 text-sm px-3 py-2 rounded border hover:bg-accent disabled:opacity-50"
+              >
+                <Download className="h-4 w-4" />
+                {downloading ? 'Downloading…' : 'Config'}
+              </button>
+            )}
+            {lease?.ip_address && (
               <button
                 onClick={() => { onClose(); onTerminal(device) }}
-                className="flex items-center gap-1.5 text-sm px-4 py-2 rounded border border-green-600 text-green-700 hover:bg-green-50"
+                className="flex items-center gap-1.5 text-sm px-3 py-2 rounded border border-green-600 text-green-700 hover:bg-green-50"
               >
                 <Terminal className="h-4 w-4" />
                 Connect
@@ -294,8 +386,9 @@ function DeviceDrawer({
 }
 
 export default function DevicesPage() {
-  const [selected, setSelected]         = useState<Device | null>(null)
-  const [terminalDevice, setTerminal]   = useState<Device | null>(null)
+  const [selected, setSelected]       = useState<Device | null>(null)
+  const [terminalDevice, setTerminal] = useState<Device | null>(null)
+
   const { data: devices, isLoading, error, refetch, isFetching } = useQuery<Device[]>({
     queryKey: ['devices'],
     queryFn: () => api.get<Device[]>('/api/v1/devices'),
@@ -358,33 +451,59 @@ export default function DevicesPage() {
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">IP</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">MAC</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Serial</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Vendor / Model</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground">ZTP Method</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Profile</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Status</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Last Seen</th>
+                <th className="w-16" />
               </tr>
             </thead>
             <tbody>
               {devices.map((d, i) => {
                 const profile = profiles.find(p => p.id === d.profile_id)
                 const lease   = getLeaseForDevice(d)
+                const vendor  = d.vendor_class ? (VENDOR_DISPLAY[d.vendor_class] ?? d.vendor_class) : null
+                const model   = d.description ?? null
                 return (
                   <tr
                     key={d.id}
                     onClick={() => setSelected(d)}
-                    className={`cursor-pointer hover:bg-muted/40 transition-colors ${i % 2 === 0 ? '' : 'bg-muted/20'}`}
+                    className={`group cursor-pointer hover:bg-muted/40 transition-colors ${i % 2 === 0 ? '' : 'bg-muted/20'}`}
                   >
                     <td className="px-4 py-3 font-medium">{d.hostname ?? <span className="text-muted-foreground">—</span>}</td>
                     <td className="px-4 py-3 font-mono text-xs">{lease?.ip_address ?? '—'}</td>
                     <td className="px-4 py-3 font-mono text-xs">{d.mac ?? lease?.hw_address ?? '—'}</td>
                     <td className="px-4 py-3 font-mono text-xs">{d.serial ?? '—'}</td>
+                    <td className="px-4 py-3 text-xs">
+                      {vendor || model
+                        ? <span>{[vendor, model].filter(Boolean).join(' ')}</span>
+                        : <span className="text-muted-foreground">—</span>
+                      }
+                    </td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground">
+                      {d.vendor_class ? (ZTP_METHOD[d.vendor_class] ?? d.vendor_class) : '—'}
+                    </td>
                     <td className="px-4 py-3 text-muted-foreground text-xs">{profile?.name ?? '—'}</td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[d.status]}`}>
-                        {d.status}
+                        {STATUS_LABELS[d.status]}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground text-xs">
                       {d.last_seen ? formatRelative(d.last_seen) : '—'}
+                    </td>
+                    <td className="px-4 py-2 text-right">
+                      {lease?.ip_address && (
+                        <button
+                          onClick={e => { e.stopPropagation(); setTerminal(d) }}
+                          title="Open terminal"
+                          className="opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-green-600 text-green-700 hover:bg-green-50"
+                        >
+                          <Terminal className="h-3.5 w-3.5" />
+                          Connect
+                        </button>
+                      )}
                     </td>
                   </tr>
                 )

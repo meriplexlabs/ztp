@@ -21,15 +21,24 @@ function TemplateForm({
   onClose: () => void
 }) {
   const qc = useQueryClient()
-  const [name, setName] = useState(initial?.name ?? '')
-  const [vendor, setVendor] = useState(initial?.vendor ?? 'cisco')
-  const [osType, setOsType] = useState(initial?.os_type ?? '')
+  const [name,     setName]     = useState(initial?.name ?? '')
+  const [vendor,   setVendor]   = useState(initial?.vendor ?? 'cisco')
+  const [osType,   setOsType]   = useState(initial?.os_type ?? '')
   const [filePath, setFilePath] = useState(initial?.file_path ?? '')
-  const [error, setError] = useState<string | null>(null)
+  const [content,  setContent]  = useState(initial?.content ?? '')
+  const [error,    setError]    = useState<string | null>(null)
 
   const save = useMutation({
     mutationFn: () => {
-      const body = { name, vendor, os_type: osType, file_path: filePath || undefined }
+      const body = {
+        name,
+        vendor,
+        os_type:   osType,
+        file_path: filePath || undefined,
+        // Store content in DB (takes priority over file-backed template in renderer).
+        // Set to null/undefined to revert to file-backed rendering.
+        content: content.trim() || undefined,
+      }
       return initial
         ? api.put<ConfigTemplate>(`/api/v1/templates/${initial.id}`, { ...initial, ...body })
         : api.post<ConfigTemplate>('/api/v1/templates', body)
@@ -48,18 +57,18 @@ function TemplateForm({
     <>
       <div className="fixed inset-0 bg-black/30 z-40" onClick={onClose} />
       <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
-        <div className="bg-background border rounded-lg shadow-xl w-full max-w-md">
-          <div className="flex items-center justify-between px-5 py-4 border-b">
+        <div className="bg-background border rounded-lg shadow-xl w-full max-w-4xl flex flex-col max-h-[90vh]">
+          <div className="flex items-center justify-between px-5 py-4 border-b shrink-0">
             <p className="font-semibold text-sm">{initial ? 'Edit Template' : 'Register Template'}</p>
             <button onClick={onClose}><X className="h-4 w-4" /></button>
           </div>
-          <div className="px-5 py-4 space-y-4">
-            <div>
-              <label className="block text-xs font-medium text-muted-foreground mb-1">Name</label>
-              <input value={name} onChange={e => setName(e.target.value)} placeholder="Cisco IOS-XE Baseline"
-                className="w-full text-sm border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/50" />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
+          <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">Name</label>
+                <input value={name} onChange={e => setName(e.target.value)} placeholder="Cisco IOS-XE Baseline"
+                  className="w-full text-sm border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/50" />
+              </div>
               <div>
                 <label className="block text-xs font-medium text-muted-foreground mb-1">Vendor</label>
                 <select value={vendor} onChange={e => setVendor(e.target.value)}
@@ -77,14 +86,38 @@ function TemplateForm({
             </div>
             <div>
               <label className="block text-xs font-medium text-muted-foreground mb-1">
-                File Path <span className="text-muted-foreground font-normal">(relative to configs/)</span>
+                File Path{' '}
+                <span className="font-normal">(relative to configs/ — used as fallback when content is empty)</span>
               </label>
               <input value={filePath} onChange={e => setFilePath(e.target.value)} placeholder="cisco/ios-xe.cfg"
                 className="w-full text-sm border rounded px-3 py-2 font-mono focus:outline-none focus:ring-2 focus:ring-primary/50" />
             </div>
+            <div className="flex-1">
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-medium text-muted-foreground">
+                  Template Content{' '}
+                  <span className="font-normal">(Jinja2 — overrides file when set)</span>
+                </label>
+                {content.trim() && (
+                  <button
+                    onClick={() => setContent('')}
+                    className="text-xs text-muted-foreground hover:text-destructive"
+                  >
+                    Clear (revert to file)
+                  </button>
+                )}
+              </div>
+              <textarea
+                value={content}
+                onChange={e => setContent(e.target.value)}
+                placeholder={'# Paste or write your Jinja2 template here.\n# Leave empty to use the file at the path above.'}
+                spellCheck={false}
+                className="w-full h-96 text-xs font-mono border rounded px-3 py-2 bg-muted/30 resize-y focus:outline-none focus:ring-2 focus:ring-primary/50"
+              />
+            </div>
             {error && <p className="text-xs text-destructive">{error}</p>}
           </div>
-          <div className="px-5 py-4 border-t flex items-center justify-between">
+          <div className="px-5 py-4 border-t shrink-0 flex items-center justify-between">
             {initial ? (
               <button onClick={() => { if (confirm('Delete this template?')) del.mutate() }}
                 className="flex items-center gap-1.5 text-sm text-destructive hover:opacity-80">

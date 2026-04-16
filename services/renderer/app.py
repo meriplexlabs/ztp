@@ -168,19 +168,10 @@ def render_template(req: RenderRequest):
     1. File system: <TEMPLATE_DIR>/<template_name>.cfg
     2. Database: config_templates.content where name matches
     """
-    # 1. Try filesystem first
-    template_path = req.template_name + ".cfg"
-    try:
-        tmpl = jinja_env.get_template(template_path)
-        log.info("Rendering file-backed template: %s", template_path)
-    except TemplateNotFound:
-        # 2. Fall back to DB
-        db_content = fetch_template_from_db(req.template_name)
-        if db_content is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Template '{req.template_name}' not found on filesystem or in database",
-            )
+    # 1. DB content takes priority (allows UI edits to override file-backed templates).
+    #    Falls back to filesystem when content is NULL / not in DB.
+    db_content = fetch_template_from_db(req.template_name)
+    if db_content is not None:
         try:
             tmpl = jinja_env.from_string(db_content)
             log.info("Rendering DB-backed template: %s", req.template_name)
@@ -188,6 +179,17 @@ def render_template(req: RenderRequest):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=f"Template syntax error: {exc.message}",
+            )
+    else:
+        # 2. Fall back to filesystem
+        template_path = req.template_name + ".cfg"
+        try:
+            tmpl = jinja_env.get_template(template_path)
+            log.info("Rendering file-backed template: %s", template_path)
+        except TemplateNotFound:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Template '{req.template_name}' not found in database or on filesystem",
             )
 
     # Render

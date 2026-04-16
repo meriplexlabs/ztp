@@ -45,9 +45,10 @@ func syncLeases(ctx context.Context, pool *pgxpool.Pool) error {
 		FROM lease4
 		WHERE state = 0
 		  AND NOT EXISTS (
-		    SELECT 1 FROM devices
-		    WHERE mac IS NOT NULL
-		      AND REPLACE(mac::text, ':', '') = encode(hwaddr, 'hex')
+		    SELECT 1 FROM devices d
+		    WHERE (d.mac IS NOT NULL AND REPLACE(d.mac::text, ':', '') = encode(lease4.hwaddr, 'hex'))
+		       OR (d.hostname IS NOT NULL AND lease4.hostname != '' AND LOWER(d.hostname) = LOWER(lease4.hostname))
+		       OR (d.serial   IS NOT NULL AND lease4.hostname != '' AND LOWER(d.serial)   = LOWER(lease4.hostname))
 		  )
 	`)
 	if err != nil {
