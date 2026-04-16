@@ -97,8 +97,8 @@ function TerminalOverlay({ device, onClose }: { device: Device; onClose: () => v
   }
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="w-[90vw] h-[85vh] flex flex-col bg-black rounded-xl shadow-2xl overflow-hidden border border-gray-700">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-[2px]">
+      <div className="w-[72vw] max-w-5xl h-[65vh] flex flex-col bg-black rounded-xl shadow-2xl overflow-hidden border border-gray-700 ring-1 ring-white/10">
         <div className="flex items-center justify-between px-4 py-2 bg-gray-900 border-b border-gray-700 shrink-0">
           <span className="text-white text-sm font-mono flex items-center gap-2">
             <Terminal className="h-4 w-4 text-green-400" />
@@ -362,22 +362,15 @@ function DeviceDrawer({
         </div>
 
         {/* Footer */}
-        <div className="border-t px-5 py-4 flex items-center justify-between">
-          <button
-            onClick={() => { if (confirm('Delete this device?')) del.mutate() }}
-            disabled={del.isPending}
-            className="flex items-center gap-1.5 text-sm text-destructive hover:opacity-80 disabled:opacity-50"
-          >
-            <Trash2 className="h-4 w-4" />
-            Delete
-          </button>
-          <div className="flex gap-2">
+        <div className="border-t px-5 py-3 space-y-2 shrink-0">
+          {/* Row 1: downloads + connect */}
+          <div className="flex items-center gap-2">
             {device.profile_id && (
               <button
                 onClick={handleDownload}
                 disabled={downloading}
                 title="Download deployed (rendered) config"
-                className="flex items-center gap-1.5 text-sm px-3 py-2 rounded border hover:bg-accent disabled:opacity-50"
+                className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded border hover:bg-accent disabled:opacity-50"
               >
                 <Download className="h-4 w-4" />
                 {downloading ? '…' : 'Deployed'}
@@ -387,7 +380,7 @@ function DeviceDrawer({
               onClick={handleDownloadRunning}
               disabled={downloadingRunning}
               title="Pull running config from device via SSH"
-              className="flex items-center gap-1.5 text-sm px-3 py-2 rounded border hover:bg-accent disabled:opacity-50"
+              className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded border hover:bg-accent disabled:opacity-50"
             >
               <Download className="h-4 w-4" />
               {downloadingRunning ? '…' : 'Running'}
@@ -395,25 +388,35 @@ function DeviceDrawer({
             {lease?.ip_address && (
               <button
                 onClick={() => { onClose(); onTerminal(device) }}
-                className="flex items-center gap-1.5 text-sm px-3 py-2 rounded border border-green-600 text-green-700 hover:bg-green-50"
+                className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded border border-green-600 text-green-700 hover:bg-green-50"
               >
                 <Terminal className="h-4 w-4" />
                 Connect
               </button>
             )}
+          </div>
+          {/* Row 2: delete + cancel/save */}
+          <div className="flex items-center justify-between">
             <button
-              onClick={onClose}
-              className="text-sm px-4 py-2 rounded border hover:bg-accent"
+              onClick={() => { if (confirm('Delete this device?')) del.mutate() }}
+              disabled={del.isPending}
+              className="flex items-center gap-1.5 text-sm text-destructive hover:opacity-80 disabled:opacity-50"
             >
-              Cancel
+              <Trash2 className="h-4 w-4" />
+              Delete
             </button>
-            <button
-              onClick={handleSave}
-              disabled={save.isPending}
-              className="text-sm px-4 py-2 rounded bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
-            >
-              {save.isPending ? 'Saving…' : 'Save'}
-            </button>
+            <div className="flex gap-2">
+              <button onClick={onClose} className="text-sm px-4 py-1.5 rounded border hover:bg-accent">
+                Cancel
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={save.isPending}
+                className="text-sm px-4 py-1.5 rounded bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
+              >
+                {save.isPending ? 'Saving…' : 'Save'}
+              </button>
+            </div>
           </div>
         </div>
       </div>
