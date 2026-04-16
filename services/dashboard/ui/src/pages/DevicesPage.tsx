@@ -254,7 +254,7 @@ function DeviceDrawer({
             </div>
             <div>
               <p className="text-xs text-muted-foreground mb-1">Management IP</p>
-              <p className="font-mono text-xs">{lease?.ip_address ?? '—'}</p>
+              <p className="font-mono text-xs font-medium text-primary">{lease?.ip_address ?? '—'}</p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground mb-1">Status</p>
@@ -277,6 +277,30 @@ function DeviceDrawer({
             <div>
               <p className="text-xs text-muted-foreground mb-1">Provisioned</p>
               <p className="text-xs">{device.provisioned_at ? formatRelative(device.provisioned_at) : '—'}</p>
+            </div>
+            {device.profile_id && (
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Deployed Config</p>
+                <button
+                  onClick={handleDownload}
+                  disabled={downloading}
+                  className="text-xs text-primary hover:underline disabled:opacity-50 flex items-center gap-1"
+                >
+                  <Download className="h-3 w-3" />
+                  {downloading ? 'Downloading…' : 'Download'}
+                </button>
+              </div>
+            )}
+            <div>
+              <p className="text-xs text-muted-foreground mb-1">Running Config</p>
+              <button
+                onClick={handleDownloadRunning}
+                disabled={downloadingRunning}
+                className="text-xs text-primary hover:underline disabled:opacity-50 flex items-center gap-1"
+              >
+                <Download className="h-3 w-3" />
+                {downloadingRunning ? 'Pulling…' : 'Download'}
+              </button>
             </div>
           </div>
 
@@ -372,26 +396,6 @@ function DeviceDrawer({
             <Trash2 className="h-4 w-4" />
           </button>
           <div className="flex items-center gap-2">
-            {device.profile_id && (
-              <button
-                onClick={handleDownload}
-                disabled={downloading}
-                title="Download deployed (rendered) config"
-                className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded border hover:bg-accent disabled:opacity-50"
-              >
-                <Download className="h-4 w-4" />
-                {downloading ? '…' : 'Deployed'}
-              </button>
-            )}
-            <button
-              onClick={handleDownloadRunning}
-              disabled={downloadingRunning}
-              title="Pull running config from device via SSH"
-              className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded border hover:bg-accent disabled:opacity-50"
-            >
-              <Download className="h-4 w-4" />
-              {downloadingRunning ? '…' : 'Running'}
-            </button>
             {lease?.ip_address && (
               <button
                 onClick={() => { onClose(); onTerminal(device) }}
@@ -401,9 +405,6 @@ function DeviceDrawer({
                 <Terminal className="h-4 w-4" />
               </button>
             )}
-            <button onClick={onClose} className="text-sm px-3 py-1.5 rounded border hover:bg-accent">
-              Cancel
-            </button>
             <button
               onClick={handleSave}
               disabled={save.isPending}
