@@ -1,19 +1,39 @@
 import Editor from 'react-simple-code-editor'
 import Prism from 'prismjs'
-import 'prismjs/components/prism-markup-templating'
-import 'prismjs/components/prism-twig'
 
-// Minimal dark theme matching the app's monospace style
+// Inline Jinja2 grammar — avoids Vite/ESM issues with prism component imports
+Prism.languages['jinja2'] = {
+  comment:   { pattern: /\{#[\s\S]*?#\}/,              greedy: true },
+  tag:       { pattern: /\{%-?[\s\S]*?-?%\}/,          greedy: true, inside: {
+    delimiter: { pattern: /^\{%-?|-?%\}$/ },
+    keyword:   { pattern: /\b(if|elif|else|endif|for|endfor|block|endblock|extends|include|import|from|as|set|macro|endmacro|call|endcall|filter|endfilter|with|endwith|raw|endraw|not|and|or|in|is|recursive|super|loop|namespace|do)\b/ },
+    string:    { pattern: /["'](?:[^"'\\]|\\.)*["']/, greedy: true },
+    number:    /\b\d+\.?\d*\b/,
+    operator:  /[|~]|[=!<>]=?/,
+    punctuation: /[()[\]{}.,:]/,
+    variable:  /[a-zA-Z_]\w*/,
+  }},
+  variable:  { pattern: /\{\{-?[\s\S]*?-?\}\}/,        greedy: true, inside: {
+    delimiter: { pattern: /^\{\{-?|-?\}\}$/ },
+    string:    { pattern: /["'](?:[^"'\\]|\\.)*["']/, greedy: true },
+    number:    /\b\d+\.?\d*\b/,
+    operator:  /[|~]|[=!<>]=?/,
+    punctuation: /[()[\]{}.,:]/,
+    name:      /[a-zA-Z_]\w*/,
+  }},
+}
+
 const THEME = `
-.jinja-editor { background:#1e1e2e; color:#cdd6f4; font-size:0.75rem; font-family:ui-monospace,monospace; min-height:24rem; border-radius:0.375rem; }
-.jinja-editor .token.tag,.jinja-editor .token.delimiter { color:#89b4fa; }
-.jinja-editor .token.keyword { color:#cba6f7; font-weight:600; }
-.jinja-editor .token.variable { color:#89dceb; }
-.jinja-editor .token.string { color:#a6e3a1; }
-.jinja-editor .token.number { color:#fab387; }
-.jinja-editor .token.comment { color:#585b70; font-style:italic; }
-.jinja-editor .token.operator { color:#89b4fa; }
-.jinja-editor .token.punctuation { color:#cdd6f4; }
+.jinja-editor-wrap { background:#1e1e2e; color:#cdd6f4; border-radius:0.375rem; }
+.jinja-editor-wrap textarea,.jinja-editor-wrap pre { font-size:0.75rem!important; font-family:ui-monospace,SFMono-Regular,monospace!important; line-height:1.6!important; }
+.jinja-editor-wrap .token.delimiter  { color:#89b4fa; font-weight:bold; }
+.jinja-editor-wrap .token.keyword    { color:#cba6f7; font-weight:600; }
+.jinja-editor-wrap .token.variable,.jinja-editor-wrap .token.name { color:#89dceb; }
+.jinja-editor-wrap .token.string     { color:#a6e3a1; }
+.jinja-editor-wrap .token.number     { color:#fab387; }
+.jinja-editor-wrap .token.comment    { color:#6c7086; font-style:italic; }
+.jinja-editor-wrap .token.operator   { color:#89b4fa; }
+.jinja-editor-wrap .token.punctuation { color:#9399b2; }
 `
 
 let injected = false
@@ -25,9 +45,9 @@ function injectTheme() {
   document.head.appendChild(el)
 }
 
-function highlight(code: string) {
+function highlight(code: string): string {
   injectTheme()
-  return Prism.highlight(code, Prism.languages['twig'], 'twig')
+  return Prism.highlight(code, Prism.languages['jinja2'], 'jinja2')
 }
 
 interface JinjaEditorProps {
@@ -38,7 +58,7 @@ interface JinjaEditorProps {
 
 export default function JinjaEditor({ value, onChange, placeholder }: JinjaEditorProps) {
   return (
-    <div className="border rounded overflow-hidden focus-within:ring-2 focus-within:ring-primary/50">
+    <div className="jinja-editor-wrap border rounded overflow-hidden focus-within:ring-2 focus-within:ring-primary/50">
       <Editor
         value={value}
         onValueChange={onChange}
@@ -47,7 +67,6 @@ export default function JinjaEditor({ value, onChange, placeholder }: JinjaEdito
         tabSize={2}
         insertSpaces
         placeholder={placeholder}
-        className="jinja-editor"
         style={{ minHeight: '24rem', fontFamily: 'ui-monospace, monospace', fontSize: '0.75rem' }}
         textareaClassName="focus:outline-none"
       />
