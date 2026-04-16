@@ -1,3 +1,4 @@
+import { useCallback } from 'react'
 import CodeMirror from '@uiw/react-codemirror'
 import { StreamLanguage } from '@codemirror/language'
 import { autocompletion, type CompletionContext } from '@codemirror/autocomplete'
@@ -5,7 +6,8 @@ import { oneDark } from '@codemirror/theme-one-dark'
 
 // ── Jinja2 stream language ─────────────────────────────────────────────────────
 
-type JinjaState = { mode: 'text' | 'tag' | 'var' | 'comment' }
+type JinjaMode = 'text' | 'tag' | 'var' | 'comment'
+type JinjaState = { mode: JinjaMode }
 
 const JINJA_KEYWORDS = [
   'if', 'else', 'elif', 'endif',
@@ -15,15 +17,16 @@ const JINJA_KEYWORDS = [
   'macro', 'endmacro', 'call', 'endcall',
   'filter', 'endfilter',
   'set', 'do', 'with', 'endwith',
-  'raw', 'endraw', 'without', 'context',
-  'not', 'and', 'or', 'in', 'is', 'none', 'true', 'false',
-  'loop', 'namespace',
+  'raw', 'endraw', 'not', 'and', 'or',
+  'in', 'is', 'none', 'true', 'false', 'loop', 'namespace',
 ]
 
 const jinjaLanguage = StreamLanguage.define<JinjaState>({
-  startState: () => ({ mode: 'text' }),
+  startState: (): JinjaState => ({ mode: 'text' }),
+  copyState: (s): JinjaState => ({ mode: s.mode }),
+  blankLine(state) { state.mode = 'text' },
 
-  token(stream, state) {
+  token(stream, state): string | null {
     if (state.mode === 'comment') {
       if (stream.match('#}')) { state.mode = 'text'; return 'comment' }
       stream.next()
@@ -31,84 +34,67 @@ const jinjaLanguage = StreamLanguage.define<JinjaState>({
     }
 
     if (state.mode === 'tag') {
-      if (stream.match('%}')) { state.mode = 'text'; return 'meta' }
+      if (stream.match(/%}/)) { state.mode = 'text'; return 'meta' }
       if (stream.eatSpace()) return null
-      if (stream.match(/^-?\s*/)) return null
-      const kw = stream.match(/^[a-z_]+/)
-      if (kw && kw !== true) {
+      const kw = stream.match(/^-?[a-z_]+/)
+      if (kw !== true && kw) {
         return JINJA_KEYWORDS.includes(kw[0]) ? 'keyword' : 'variableName'
       }
       if (stream.match(/^["'](?:[^"'\\]|\\.)*["']/)) return 'string'
       if (stream.match(/^\d+/)) return 'number'
-      if (stream.match(/^[|.,:()[\]{}+\-*/%=!<>~]/)) return 'operator'
+      if (stream.match(/^[|.,:()[\]{}+\-*/%=!<>~-]/)) return 'operator'
       stream.next()
       return null
     }
 
     if (state.mode === 'var') {
-      if (stream.match('}}')) { state.mode = 'text'; return 'meta' }
+      if (stream.match(/}}/)) { state.mode = 'text'; return 'meta' }
       if (stream.eatSpace()) return null
       if (stream.match(/^[a-zA-Z_][\w.]*/)) return 'variableName'
       if (stream.match(/^["'](?:[^"'\\]|\\.)*["']/)) return 'string'
-      if (stream.match(/^[|.,:()[\]{}+\-*/%=!<>~]/)) return 'operator'
+      if (stream.match(/^[|.,:()[\]{}+\-*/%=!<>~-]/)) return 'operator'
       stream.next()
       return null
     }
 
     // text mode
     if (stream.match('{#')) { state.mode = 'comment'; return 'comment' }
-    if (stream.match('{%-') || stream.match('{%')) { state.mode = 'tag'; return 'meta' }
-    if (stream.match('{{-') || stream.match('{{')) { state.mode = 'var'; return 'meta' }
+    if (stream.match(/^\{%-?/)) { state.mode = 'tag'; return 'meta' }
+    if (stream.match(/^\{\{-?/)) { state.mode = 'var'; return 'meta' }
 
     while (stream.next() !== null) {
       if (stream.peek() === '{') break
     }
     return null
   },
-
-  copyState: s => ({ mode: s.mode }),
-  blankLine(state) { state.mode = 'text' },
 })
 
-// ── Jinja2 autocomplete ────────────────────────────────────────────────────────
+// ── Autocomplete ───────────────────────────────────────────────────────────────
 
-const TAG_SNIPPETS = [
-  { label: 'if',       apply: '{% if  %}\n{% endif %}',       detail: 'if block' },
-  { label: 'for',      apply: '{% for  in  %}\n{% endfor %}', detail: 'for loop' },
-  { label: 'block',    apply: '{% block  %}\n{% endblock %}', detail: 'template block' },
-  { label: 'extends',  apply: "{% extends '' %}",             detail: 'template inheritance' },
-  { label: 'include',  apply: "{% include '' %}",             detail: 'include template' },
-  { label: 'set',      apply: '{% set  =  %}',                detail: 'set variable' },
-  { label: 'macro',    apply: '{% macro () %}\n{% endmacro %}', detail: 'define macro' },
-  { label: 'elif',     apply: '{% elif  %}',                  detail: 'else if' },
-  { label: 'else',     apply: '{% else %}',                   detail: 'else' },
-  { label: 'endif',    apply: '{% endif %}',                  detail: 'end if' },
-  { label: 'endfor',   apply: '{% endfor %}',                 detail: 'end for' },
-  { label: 'endblock', apply: '{% endblock %}',               detail: 'end block' },
+const TAG_COMPLETIONS = [
+  { label: '{% if %}',      apply: '{% if  %}\n{% endif %}',          detail: 'if / endif' },
+  { label: '{% for %}',     apply: '{% for item in items %}\n{% endfor %}', detail: 'for loop' },
+  { label: '{% block %}',   apply: '{% block name %}\n{% endblock %}', detail: 'block' },
+  { label: '{% extends %}', apply: "{% extends '' %}",                 detail: 'inheritance' },
+  { label: '{% include %}', apply: "{% include '' %}",                 detail: 'include' },
+  { label: '{% set %}',     apply: '{% set var = value %}',            detail: 'set variable' },
+  { label: '{% macro %}',   apply: '{% macro name(args) %}\n{% endmacro %}', detail: 'macro' },
+  { label: '{% else %}',    apply: '{% else %}',                       detail: 'else' },
+  { label: '{% elif %}',    apply: '{% elif  %}',                      detail: 'elif' },
+  { label: '{% endif %}',   apply: '{% endif %}',                      detail: 'end if' },
+  { label: '{% endfor %}',  apply: '{% endfor %}',                     detail: 'end for' },
 ]
 
-const KW_OPTIONS = JINJA_KEYWORDS.map(k => ({ label: k, type: 'keyword' }))
+const KW_COMPLETIONS = JINJA_KEYWORDS.map(k => ({ label: k, type: 'keyword' as const }))
 
 function jinjaCompletions(ctx: CompletionContext) {
-  // inside {%  %} — offer tag snippets and keywords
-  const tagMatch = ctx.matchBefore(/\{%-?\s*\w*/)
-  if (tagMatch) {
-    return {
-      from: tagMatch.from,
-      options: TAG_SNIPPETS.map(s => ({ ...s, type: 'function' })),
-    }
+  const tagOpen = ctx.matchBefore(/\{%-?\s*\w*/)
+  if (tagOpen) {
+    return { from: tagOpen.from, options: TAG_COMPLETIONS.map(o => ({ ...o, type: 'function' as const })) }
   }
-
-  // inside {{  }} — offer keyword completions
-  const varMatch = ctx.matchBefore(/\{\{-?\s*\w+/)
-  if (varMatch) {
-    return { from: varMatch.from, options: KW_OPTIONS }
-  }
-
-  // typing a bare word inside an already-open tag context
   const word = ctx.matchBefore(/\w+/)
   if (!word || (word.from === word.to && !ctx.explicit)) return null
-  return { from: word.from, options: KW_OPTIONS }
+  return { from: word.from, options: KW_COMPLETIONS }
 }
 
 // ── Component ──────────────────────────────────────────────────────────────────
@@ -120,16 +106,15 @@ interface JinjaEditorProps {
   placeholder?: string
 }
 
-export default function JinjaEditor({
-  value,
-  onChange,
-  minHeight = '24rem',
-  placeholder,
-}: JinjaEditorProps) {
+export default function JinjaEditor({ value, onChange, minHeight = '24rem', placeholder }: JinjaEditorProps) {
+  const handleChange = useCallback((v: string) => {
+    onChange(v)
+  }, [onChange])
+
   return (
     <CodeMirror
       value={value}
-      onChange={onChange}
+      onChange={handleChange}
       theme={oneDark}
       placeholder={placeholder}
       extensions={[

@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useState, lazy, Suspense } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, type ConfigTemplate } from '@/lib/api'
 import { FileCode2, Plus, Trash2, X } from 'lucide-react'
+
+const JinjaEditor = lazy(() => import('@/components/JinjaEditor'))
 
 const VENDOR_COLORS: Record<string, string> = {
   cisco:    'bg-blue-100 text-blue-700',
@@ -94,13 +96,20 @@ function TemplateForm({ initial, onClose }: { initial?: ConfigTemplate; onClose:
                   </button>
                 )}
               </div>
-              <textarea
-                value={content}
-                onChange={e => setContent(e.target.value)}
-                placeholder={'# Paste or write your Jinja2 template here.\n# Leave empty to use the file path above.'}
-                spellCheck={false}
-                className="w-full h-96 text-xs font-mono border rounded px-3 py-2 bg-muted/30 resize-y focus:outline-none focus:ring-2 focus:ring-primary/50"
-              />
+              <Suspense fallback={
+                <textarea
+                  value={content}
+                  onChange={e => setContent(e.target.value)}
+                  spellCheck={false}
+                  className="w-full h-96 text-xs font-mono border rounded px-3 py-2 bg-muted/30 resize-y focus:outline-none focus:ring-2 focus:ring-primary/50"
+                />
+              }>
+                <JinjaEditor
+                  value={content}
+                  onChange={setContent}
+                  placeholder={'# Paste or write your Jinja2 template here.\n# Leave empty to use the file path above.'}
+                />
+              </Suspense>
             </div>
             {error && <p className="text-xs text-destructive">{error}</p>}
           </div>
