@@ -108,17 +108,14 @@
       //   e.g. "Juniper-ex3400-24p-NW3620490200"
       // option 12 (hostname) = serial number (sent by switch during DHCP).
       //
-      // Juniper ZTP uses option 150 (not 66) as the file server IP, then
-      // reads option 43 suboptions to find the config path and protocol:
-      //   suboption 01 = config file path  (type=1, len=15, "/juniper/config")
-      //   suboption 03 = transfer protocol (type=3, len=4,  "http")
+      // option 150 = ZTP file server IP (Juniper reads this instead of option 66).
+      // option 67 = per-device config path, set dynamically by the flex-option hook
+      //             using the serial from option 12: "juniper/<serial>/config"
+      // option 43 suboption 3 = transfer protocol "http" (TLV binary).
       //
-      // The device constructs: http://<option-150>/juniper/config (port 80)
-      // The API identifies the device by source IP → lease4.hostname (serial).
-      //
-      // Option 43 hex breakdown (csv-format false = raw binary TLV):
-      //   01 0e 6a756e697065722f636f6e666967    → sub-opt 1 len=14 "juniper/config"
-      //   03 04 68747470                         → sub-opt 3 len=4  "http"
+      // The device fetches: http://<option-150>/juniper/<serial>/config (port 80)
+      // The API identifies the device directly by serial from the URL — no source
+      // IP lookup, so NAT between the switch and the server is not a problem.
       {
         "name": "vendor-juniper",
         "test": "substring(option[60].hex, 0, 7) == 'Juniper'",
@@ -128,8 +125,10 @@
             "data": "${ZTP_SERVER_IP}"
           },
           {
+            // Transfer protocol suboption only (suboption 3 = "http", 4 bytes)
+            // The config-file-name (suboption 1) is set per-device by flex-option.
             "name": "vendor-encapsulated-options",
-            "data": "010e6a756e697065722f636f6e666967030468747470",
+            "data": "030468747470",
             "csv-format": false,
             "always-send": true
           }
@@ -242,6 +241,21 @@
       {
         // statistic-get-all — used by the dashboard leases page
         "library": "/usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp_stat_cmds.so"
+      },
+      {
+        // flex-option: dynamically set option 67 (boot-file-name) per Juniper device
+        // using the serial number from option 12 (hostname sent by the switch).
+        // Result: "juniper/<serial>/config" e.g. "juniper/jx3623030103/config"
+        // Non-Juniper clients are unaffected (expression returns '' → option not added).
+        "library": "/usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp_flex_option.so",
+        "parameters": {
+          "options": [
+            {
+              "code": 67,
+              "add": "if(substring(option[60].hex, 0, 7) == 'Juniper', concat('juniper/', option[12].hex, '/config'), '')"
+            }
+          ]
+        }
       }
     ],
 

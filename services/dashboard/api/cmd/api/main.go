@@ -105,7 +105,7 @@ func main() {
 	r.Get("/api/v1/devices/{id}/terminal/ws", terminalH.ServeWS)
 
 	// ─── Juniper ZTP (unauthenticated — called by devices) ─────────────────────
-	r.Get("/juniper/config", juniperH.ZTPConfig)
+	r.Get("/juniper/{serial}/config", juniperH.ZTPConfig)
 
 	// ─── Aruba/HP ZTP (unauthenticated — called by devices) ─────────────────────
 	r.Get("/aruba/config", arubaH.ZTPConfig)
