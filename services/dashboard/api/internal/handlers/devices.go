@@ -71,6 +71,8 @@ func (h *DeviceHandler) Create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to create device: "+err.Error())
 		return
 	}
+	claims := claimsFromCtx(r)
+	auditUser(r, h.pool, claims, "created", "device", &device.ID, map[string]any{"mac": device.MAC, "serial": device.Serial})
 	writeJSON(w, http.StatusCreated, device)
 }
 
@@ -91,6 +93,7 @@ func (h *DeviceHandler) Update(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to update device: "+err.Error())
 		return
 	}
+	auditUser(r, h.pool, claimsFromCtx(r), "updated", "device", &device.ID, map[string]any{"hostname": device.Hostname, "status": device.Status})
 	writeJSON(w, http.StatusOK, device)
 }
 
@@ -105,6 +108,7 @@ func (h *DeviceHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to delete device: "+err.Error())
 		return
 	}
+	auditUser(r, h.pool, claimsFromCtx(r), "deleted", "device", &id, nil)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -359,6 +363,7 @@ func (h *DeviceHandler) PushConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	auditUser(r, h.pool, claimsFromCtx(r), "config_pushed", "device", &id, map[string]any{"vendor": vendor})
 	writeJSON(w, http.StatusOK, map[string]any{
 		"success": true,
 		"output":  strings.ReplaceAll(strings.ReplaceAll(output, "\r\n", "\n"), "\r", "\n"),

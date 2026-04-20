@@ -468,6 +468,46 @@ func DeleteTemplate(ctx context.Context, pool *pgxpool.Pool, id uuid.UUID) error
 
 // ─── Audit Log ────────────────────────────────────────────────────────────────
 
+type AuditEntry struct {
+	ID         int64      `json:"id"`
+	UserID     *uuid.UUID `json:"user_id,omitempty"`
+	Username   *string    `json:"username,omitempty"`
+	Action     string     `json:"action"`
+	EntityType *string    `json:"entity_type,omitempty"`
+	EntityID   *uuid.UUID `json:"entity_id,omitempty"`
+	Payload    []byte     `json:"payload"`
+	IPAddress  *string    `json:"ip_address,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
+}
+
+func ListAuditLog(ctx context.Context, pool *pgxpool.Pool, limit, offset int) ([]AuditEntry, error) {
+	rows, err := pool.Query(ctx,
+		`SELECT id, user_id, username, action, entity_type, entity_id,
+		        payload, ip_address::text, created_at
+		 FROM audit_log
+		 ORDER BY created_at DESC
+		 LIMIT $1 OFFSET $2`, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var entries []AuditEntry
+	for rows.Next() {
+		var e AuditEntry
+		if err := rows.Scan(
+			&e.ID, &e.UserID, &e.Username, &e.Action, &e.EntityType, &e.EntityID,
+			&e.Payload, &e.IPAddress, &e.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		entries = append(entries, e)
+	}
+	if entries == nil {
+		entries = []AuditEntry{}
+	}
+	return entries, nil
+}
+
 func WriteAudit(ctx context.Context, pool *pgxpool.Pool,
 	userID *uuid.UUID, username, action, entityType string, entityID *uuid.UUID,
 	payload map[string]any, ipAddr string,

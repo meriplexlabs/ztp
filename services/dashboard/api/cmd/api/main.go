@@ -73,6 +73,7 @@ func main() {
 	juniperH  := handlers.NewJuniperHandler(pool, conf.RendererURL)
 	arubaH    := handlers.NewArubaHandler(pool, conf.RendererURL)
 	inventoryH := handlers.NewInventoryHandler(pool)
+	auditH     := handlers.NewAuditHandler(pool)
 
 	// Router
 	r := chi.NewRouter()
@@ -173,6 +174,9 @@ func main() {
 
 		// Inventory
 		r.Get("/api/v1/inventory", inventoryH.List)
+
+		// Audit log
+		r.Get("/api/v1/audit", auditH.List)
 
 		// Password change (any authenticated user)
 		r.Put("/api/v1/users/me/password", handlers.ChangePassword(pool))

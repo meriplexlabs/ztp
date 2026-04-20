@@ -67,6 +67,7 @@ func (h *AuthHandler) LocalLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	dbpkg.WriteAudit(r.Context(), h.pool, &user.ID, user.Username, "login", "user", &user.ID, map[string]any{"method": "local"}, r.RemoteAddr)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"token":    token,
 		"expires":  time.Now().Add(h.jwtExpiry).Unix(),
