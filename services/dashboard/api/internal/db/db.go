@@ -250,9 +250,9 @@ func GetProfile(ctx context.Context, pool *pgxpool.Pool, id uuid.UUID) (*models.
 	var p models.DeviceProfile
 	var variables []byte
 	err := pool.QueryRow(ctx,
-		`SELECT id, name, description, customer_id, template_id, variables, created_by, created_at, updated_at
+		`SELECT id, name, description, customer_id, template_id, firmware_version, variables, created_by, created_at, updated_at
 		 FROM device_profiles WHERE id = $1`, id,
-	).Scan(&p.ID, &p.Name, &p.Description, &p.CustomerID, &p.TemplateID, &variables, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt)
+	).Scan(&p.ID, &p.Name, &p.Description, &p.CustomerID, &p.TemplateID, &p.FirmwareVersion, &variables, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("profile not found: %w", err)
 	}
@@ -390,7 +390,7 @@ func DeleteCustomer(ctx context.Context, pool *pgxpool.Pool, id uuid.UUID) error
 
 func ListProfiles(ctx context.Context, pool *pgxpool.Pool) ([]models.DeviceProfile, error) {
 	rows, err := pool.Query(ctx,
-		`SELECT id, name, description, customer_id, template_id, variables, created_by, created_at, updated_at
+		`SELECT id, name, description, customer_id, template_id, firmware_version, variables, created_by, created_at, updated_at
 		 FROM device_profiles ORDER BY name`)
 	if err != nil {
 		return nil, err
@@ -400,7 +400,7 @@ func ListProfiles(ctx context.Context, pool *pgxpool.Pool) ([]models.DeviceProfi
 	for rows.Next() {
 		var p models.DeviceProfile
 		var variables []byte
-		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.CustomerID, &p.TemplateID, &variables, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.CustomerID, &p.TemplateID, &p.FirmwareVersion, &variables, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, err
 		}
 		if len(variables) > 0 {
@@ -417,19 +417,19 @@ func ListProfiles(ctx context.Context, pool *pgxpool.Pool) ([]models.DeviceProfi
 func CreateProfile(ctx context.Context, pool *pgxpool.Pool, p *models.DeviceProfile) error {
 	vars, _ := json.Marshal(p.Variables)
 	return pool.QueryRow(ctx,
-		`INSERT INTO device_profiles (name, description, customer_id, template_id, variables, created_by)
-		 VALUES ($1, $2, $3, $4, $5, $6)
+		`INSERT INTO device_profiles (name, description, customer_id, template_id, firmware_version, variables, created_by)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)
 		 RETURNING id, created_at, updated_at`,
-		p.Name, p.Description, p.CustomerID, p.TemplateID, vars, p.CreatedBy,
+		p.Name, p.Description, p.CustomerID, p.TemplateID, p.FirmwareVersion, vars, p.CreatedBy,
 	).Scan(&p.ID, &p.CreatedAt, &p.UpdatedAt)
 }
 
 func UpdateProfile(ctx context.Context, pool *pgxpool.Pool, p *models.DeviceProfile) error {
 	vars, _ := json.Marshal(p.Variables)
 	_, err := pool.Exec(ctx,
-		`UPDATE device_profiles SET name=$1, description=$2, customer_id=$3, template_id=$4, variables=$5
-		 WHERE id=$6`,
-		p.Name, p.Description, p.CustomerID, p.TemplateID, vars, p.ID,
+		`UPDATE device_profiles SET name=$1, description=$2, customer_id=$3, template_id=$4, firmware_version=$5, variables=$6
+		 WHERE id=$7`,
+		p.Name, p.Description, p.CustomerID, p.TemplateID, p.FirmwareVersion, vars, p.ID,
 	)
 	return err
 }

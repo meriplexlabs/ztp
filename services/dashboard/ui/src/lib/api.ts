@@ -106,6 +106,7 @@ export interface DeviceProfile {
   description?: string
   customer_id?: string
   template_id?: string
+  firmware_version?: string
   variables: Record<string, unknown>
   created_at: string
   updated_at: string

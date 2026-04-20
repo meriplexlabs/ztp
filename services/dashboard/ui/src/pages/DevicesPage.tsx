@@ -740,6 +740,7 @@ export default function DevicesPage() {
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Vendor / Model</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">ZTP Method</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Profile</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Firmware</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Status</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Last Seen</th>
                 <th className="w-16" />
@@ -771,6 +772,19 @@ export default function DevicesPage() {
                       {d.vendor_class ? (ZTP_METHOD[d.vendor_class] ?? d.vendor_class) : '—'}
                     </td>
                     <td className="px-4 py-3 text-muted-foreground text-xs">{profile?.name ?? '—'}</td>
+                    <td className="px-4 py-3 text-xs font-mono">
+                      {d.firmware_version ? (
+                        <span className="flex items-center gap-1.5">
+                          {d.firmware_version}
+                          {profile?.firmware_version && profile.firmware_version !== d.firmware_version && (
+                            <span title={`Target: ${profile.firmware_version}`}
+                              className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700 font-sans">
+                              update
+                            </span>
+                          )}
+                        </span>
+                      ) : '—'}
+                    </td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[d.status]}`}>
                         {STATUS_LABELS[d.status]}

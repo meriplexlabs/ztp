@@ -106,12 +106,13 @@ function ProfileForm({
   const [tab, setTab] = useState<Tab>('general')
 
   // General
-  const [name,       setName]       = useState(initial?.name ?? '')
-  const [desc,       setDesc]       = useState(initial?.description ?? '')
-  const [customerId, setCustomerId] = useState(initial?.customer_id ?? '')
-  const [templateId, setTemplateId] = useState(initial?.template_id ?? '')
-  const [error,      setError]      = useState<string | null>(null)
-  const [discovering, setDiscovering] = useState(false)
+  const [name,            setName]            = useState(initial?.name ?? '')
+  const [desc,            setDesc]            = useState(initial?.description ?? '')
+  const [customerId,      setCustomerId]      = useState(initial?.customer_id ?? '')
+  const [templateId,      setTemplateId]      = useState(initial?.template_id ?? '')
+  const [firmwareVersion, setFirmwareVersion] = useState(initial?.firmware_version ?? '')
+  const [error,           setError]           = useState<string | null>(null)
+  const [discovering,     setDiscovering]     = useState(false)
 
   // VLANs — extracted from variables.vlans on load
   const [vlans, setVlans] = useState<[string, string][]>(() => {
@@ -151,9 +152,10 @@ function ProfileForm({
       }
       const body = {
         name,
-        description:  desc       || undefined,
-        customer_id:  customerId || undefined,
-        template_id:  templateId || undefined,
+        description:      desc            || undefined,
+        customer_id:      customerId      || undefined,
+        template_id:      templateId      || undefined,
+        firmware_version: firmwareVersion || undefined,
         variables,
       }
       return initial
@@ -280,6 +282,13 @@ function ProfileForm({
                       <option key={t.id} value={t.id}>{t.vendor} / {t.name}</option>
                     ))}
                   </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">Target Firmware Version</label>
+                  <input value={firmwareVersion} onChange={e => setFirmwareVersion(e.target.value)}
+                    placeholder="e.g. 17.12.04"
+                    className="w-full text-sm border rounded px-3 py-2 font-mono focus:outline-none focus:ring-2 focus:ring-primary/50" />
+                  <p className="text-xs text-muted-foreground mt-1">Devices on this profile will be flagged if their firmware doesn't match.</p>
                 </div>
               </div>
             )}
@@ -577,6 +586,7 @@ export default function ProfilesPage() {
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Name</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Customer</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Template</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Target FW</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Ports</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">VLANs</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Description</th>
@@ -602,6 +612,9 @@ export default function ProfilesPage() {
                       {tmpl
                         ? <span className={`text-xs px-1.5 py-0.5 rounded font-mono ${VENDOR_COLORS[tmpl.vendor] ?? 'bg-gray-100 text-gray-700'}`}>{tmpl.name}</span>
                         : <span className="text-muted-foreground">—</span>}
+                    </td>
+                    <td className="px-4 py-3 text-xs font-mono text-muted-foreground">
+                      {p.firmware_version ?? '—'}
                     </td>
                     <td className="px-4 py-3 text-xs text-muted-foreground">
                       {portCount > 0 ? `${portCount} ports` : '—'}
