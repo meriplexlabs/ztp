@@ -340,9 +340,10 @@ function DeviceDrawer({
   onDiff: (d: Device) => void
 }) {
   const qc = useQueryClient()
-  const [hostname,    setHostname]    = useState(device.hostname ?? '')
-  const [description, setDescription] = useState(device.description ?? '')
-  const [profileId,   setProfileId]   = useState(device.profile_id ?? '')
+  const [hostname,     setHostname]     = useState(device.hostname ?? '')
+  const [description,  setDescription]  = useState(device.description ?? '')
+  const [profileId,    setProfileId]    = useState(device.profile_id ?? '')
+  const [managementIp, setManagementIp] = useState(device.management_ip ?? '')
   const [vars, setVars] = useState<[string, string][]>(
     Object.entries(device.variables ?? {}).map(([k, v]) => [k, String(v)])
   )
@@ -382,9 +383,10 @@ function DeviceDrawer({
     const variables = Object.fromEntries(vars.filter(([k]) => k.trim() !== ''))
     save.mutate({
       ...device,
-      hostname:    hostname    || undefined,
-      description: description || undefined,
-      profile_id:  profileId  || undefined,
+      hostname:      hostname      || undefined,
+      description:   description   || undefined,
+      profile_id:    profileId     || undefined,
+      management_ip: managementIp  || undefined,
       variables,
     })
   }
@@ -471,7 +473,12 @@ function DeviceDrawer({
             </div>
             <div>
               <p className="text-xs text-muted-foreground mb-1">Management IP</p>
-              <p className="font-mono text-xs font-medium text-primary">{lease?.ip_address ?? '—'}</p>
+              <p className="font-mono text-xs font-medium text-primary">
+                {lease?.ip_address ?? device.management_ip ?? '—'}
+                {!lease?.ip_address && device.management_ip && (
+                  <span className="ml-1.5 text-[10px] font-sans font-normal text-muted-foreground">static</span>
+                )}
+              </p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground mb-1">Status</p>
@@ -592,6 +599,20 @@ function DeviceDrawer({
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </select>
+          </div>
+
+          {/* Management IP */}
+          <div>
+            <label className="block text-xs font-medium text-muted-foreground mb-1">
+              Management IP <span className="font-normal text-muted-foreground/60">(optional — overridden by DHCP lease)</span>
+            </label>
+            <input
+              type="text"
+              value={managementIp}
+              onChange={e => setManagementIp(e.target.value)}
+              placeholder="e.g. 10.0.0.50"
+              className="w-full text-sm font-mono border rounded px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/50"
+            />
           </div>
 
           {/* Variables */}
@@ -819,27 +840,34 @@ const VENDORS = ['cisco', 'juniper', 'aruba', 'extreme', 'fortinet', 'other']
 
 function NewDeviceModal({ profiles, onClose }: { profiles: DeviceProfile[]; onClose: () => void }) {
   const qc = useQueryClient()
-  const [hostname,    setHostname]    = useState('')
-  const [mac,         setMac]         = useState('')
-  const [serial,      setSerial]      = useState('')
-  const [vendor,      setVendor]      = useState('')
-  const [description, setDescription] = useState('')
-  const [profileId,   setProfileId]   = useState('')
-  const [error,       setError]       = useState<string | null>(null)
+  const [hostname,     setHostname]     = useState('')
+  const [mac,          setMac]          = useState('')
+  const [serial,       setSerial]       = useState('')
+  const [vendor,       setVendor]       = useState('')
+  const [description,  setDescription]  = useState('')
+  const [profileId,    setProfileId]    = useState('')
+  const [managementIp, setManagementIp] = useState('')
+  const [sshUsername,  setSshUsername]  = useState('admin')
+  const [sshPassword,  setSshPassword]  = useState('')
+  const [error,        setError]        = useState<string | null>(null)
 
   const save = useMutation({
     mutationFn: () => {
       if (!mac.trim() && !serial.trim()) {
         throw new Error('At least one of MAC or Serial is required')
       }
+      const variables: Record<string, string> = {}
+      if (sshUsername) variables['ssh_username'] = sshUsername
+      if (sshPassword) variables['local_password'] = sshPassword
       return api.post<Device>('/api/v1/devices', {
-        hostname:     hostname     || undefined,
-        mac:          mac.trim()   || undefined,
-        serial:       serial.trim() || undefined,
-        vendor_class: vendor       || undefined,
-        description:  description  || undefined,
-        profile_id:   profileId    || undefined,
-        variables:    {},
+        hostname:      hostname       || undefined,
+        mac:           mac.trim()     || undefined,
+        serial:        serial.trim()  || undefined,
+        vendor_class:  vendor         || undefined,
+        description:   description    || undefined,
+        profile_id:    profileId      || undefined,
+        management_ip: managementIp   || undefined,
+        variables,
       })
     },
     onSuccess: () => {
@@ -894,6 +922,28 @@ function NewDeviceModal({ profiles, onClose }: { profiles: DeviceProfile[]; onCl
                 <input value={description} onChange={e => setDescription(e.target.value)}
                   placeholder="e.g. FortiSwitch 148F"
                   className="w-full text-sm border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/50" />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-muted-foreground mb-1">
+                Management IP <span className="font-normal text-muted-foreground/60">(optional if using DHCP)</span>
+              </label>
+              <input value={managementIp} onChange={e => setManagementIp(e.target.value)}
+                placeholder="e.g. 10.0.0.50"
+                className="w-full text-sm font-mono border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/50" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">SSH Username</label>
+                <input value={sshUsername} onChange={e => setSshUsername(e.target.value)}
+                  placeholder="admin"
+                  className="w-full text-sm font-mono border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/50" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">SSH Password</label>
+                <input type="password" value={sshPassword} onChange={e => setSshPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full text-sm font-mono border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/50" />
               </div>
             </div>
             <div>

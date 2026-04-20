@@ -65,6 +65,7 @@ export interface Device {
   status: 'unknown' | 'discovered' | 'provisioning' | 'provisioned' | 'failed' | 'ignored'
   profile_id?: string
   variables: Record<string, unknown>
+  management_ip?: string
   last_seen?: string
   provisioned_at?: string
   firmware_version?: string

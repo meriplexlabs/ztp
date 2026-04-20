@@ -50,6 +50,7 @@ type Device struct {
 	Status        DeviceStatus `json:"status"`
 	ProfileID     *uuid.UUID   `json:"profile_id,omitempty"`
 	Variables     map[string]any `json:"variables"`
+	ManagementIP      *string    `json:"management_ip,omitempty"`
 	LastSeen          *time.Time `json:"last_seen,omitempty"`
 	ProvisionedAt     *time.Time `json:"provisioned_at,omitempty"`
 	FirmwareVersion   *string    `json:"firmware_version,omitempty"`

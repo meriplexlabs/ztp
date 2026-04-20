@@ -95,7 +95,7 @@ func ListUsers(ctx context.Context, pool *pgxpool.Pool) ([]models.User, error) {
 func ListDevices(ctx context.Context, pool *pgxpool.Pool) ([]models.Device, error) {
 	rows, err := pool.Query(ctx,
 		`SELECT id, mac, serial, vendor_class, hostname, description,
-		        status, profile_id, variables, last_seen, provisioned_at,
+		        status, profile_id, variables, management_ip::text, last_seen, provisioned_at,
 		        firmware_version, firmware_checked_at, created_at, updated_at
 		 FROM devices ORDER BY created_at DESC`)
 	if err != nil {
@@ -116,7 +116,7 @@ func ListDevices(ctx context.Context, pool *pgxpool.Pool) ([]models.Device, erro
 func GetDevice(ctx context.Context, pool *pgxpool.Pool, id uuid.UUID) (*models.Device, error) {
 	row := pool.QueryRow(ctx,
 		`SELECT id, mac, serial, vendor_class, hostname, description,
-		        status, profile_id, variables, last_seen, provisioned_at,
+		        status, profile_id, variables, management_ip::text, last_seen, provisioned_at,
 		        firmware_version, firmware_checked_at, created_at, updated_at
 		 FROM devices WHERE id = $1`, id)
 	return scanDevice(row)
@@ -126,7 +126,7 @@ func GetDeviceByIdentifier(ctx context.Context, pool *pgxpool.Pool, identifier s
 	// Try serial first — avoids macaddr cast errors for non-MAC identifiers.
 	row := pool.QueryRow(ctx,
 		`SELECT id, mac, serial, vendor_class, hostname, description,
-		        status, profile_id, variables, last_seen, provisioned_at,
+		        status, profile_id, variables, management_ip::text, last_seen, provisioned_at,
 		        firmware_version, firmware_checked_at, created_at, updated_at
 		 FROM devices WHERE serial = $1 LIMIT 1`, identifier)
 	d, err := scanDevice(row)
@@ -136,7 +136,7 @@ func GetDeviceByIdentifier(ctx context.Context, pool *pgxpool.Pool, identifier s
 	// Fall back to MAC lookup (only attempted when identifier looks like a MAC).
 	row = pool.QueryRow(ctx,
 		`SELECT id, mac, serial, vendor_class, hostname, description,
-		        status, profile_id, variables, last_seen, provisioned_at,
+		        status, profile_id, variables, management_ip::text, last_seen, provisioned_at,
 		        firmware_version, firmware_checked_at, created_at, updated_at
 		 FROM devices WHERE mac::text = lower($1) LIMIT 1`, identifier)
 	return scanDevice(row)
@@ -151,7 +151,7 @@ func scanDevice(row scannable) (*models.Device, error) {
 	var variables []byte
 	err := row.Scan(
 		&d.ID, &d.MAC, &d.Serial, &d.VendorClass, &d.Hostname, &d.Description,
-		&d.Status, &d.ProfileID, &variables, &d.LastSeen, &d.ProvisionedAt,
+		&d.Status, &d.ProfileID, &variables, &d.ManagementIP, &d.LastSeen, &d.ProvisionedAt,
 		&d.FirmwareVersion, &d.FirmwareCheckedAt, &d.CreatedAt, &d.UpdatedAt,
 	)
 	if err != nil {
@@ -169,10 +169,10 @@ func scanDevice(row scannable) (*models.Device, error) {
 func CreateDevice(ctx context.Context, pool *pgxpool.Pool, d *models.Device) error {
 	vars, _ := json.Marshal(d.Variables)
 	return pool.QueryRow(ctx,
-		`INSERT INTO devices (mac, serial, vendor_class, hostname, description, profile_id, variables)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)
+		`INSERT INTO devices (mac, serial, vendor_class, hostname, description, profile_id, variables, management_ip)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8::inet)
 		 RETURNING id, created_at, updated_at`,
-		d.MAC, d.Serial, d.VendorClass, d.Hostname, d.Description, d.ProfileID, vars,
+		d.MAC, d.Serial, d.VendorClass, d.Hostname, d.Description, d.ProfileID, vars, d.ManagementIP,
 	).Scan(&d.ID, &d.CreatedAt, &d.UpdatedAt)
 }
 
@@ -182,11 +182,11 @@ func UpdateDevice(ctx context.Context, pool *pgxpool.Pool, d *models.Device) err
 		`UPDATE devices SET
 		    mac=$1, serial=$2, vendor_class=$3, hostname=$4,
 		    description=$5, profile_id=$6, variables=$7, status=$8,
-		    provisioned_at=$9
-		 WHERE id=$10`,
+		    provisioned_at=$9, management_ip=$10::inet
+		 WHERE id=$11`,
 		d.MAC, d.Serial, d.VendorClass, d.Hostname,
 		d.Description, d.ProfileID, vars, d.Status,
-		d.ProvisionedAt, d.ID,
+		d.ProvisionedAt, d.ManagementIP, d.ID,
 	)
 	return err
 }

@@ -181,8 +181,11 @@ func (h *DeviceHandler) RunningConfig(w http.ResponseWriter, r *http.Request) {
 		row := h.pool.QueryRow(ctx, fmt.Sprintf(ipQuery, "encode(hwaddr, 'hex') = $1"), mac)
 		_ = row.Scan(&mgmtIP)
 	}
+	if mgmtIP == "" && device.ManagementIP != nil {
+		mgmtIP = *device.ManagementIP
+	}
 	if mgmtIP == "" {
-		writeError(w, http.StatusBadRequest, "no active DHCP lease — management IP unknown")
+		writeError(w, http.StatusBadRequest, "no active DHCP lease and no management IP set on device")
 		return
 	}
 
@@ -325,8 +328,11 @@ func (h *DeviceHandler) PushConfig(w http.ResponseWriter, r *http.Request) {
 		row := h.pool.QueryRow(ctx, fmt.Sprintf(ipQuery, "encode(hwaddr, 'hex') = $1"), mac)
 		_ = row.Scan(&mgmtIP)
 	}
+	if mgmtIP == "" && device.ManagementIP != nil {
+		mgmtIP = *device.ManagementIP
+	}
 	if mgmtIP == "" {
-		writeError(w, http.StatusBadRequest, "no active DHCP lease — management IP unknown")
+		writeError(w, http.StatusBadRequest, "no active DHCP lease and no management IP set on device")
 		return
 	}
 
@@ -485,8 +491,11 @@ func (h *DeviceHandler) FirmwareVersion(w http.ResponseWriter, r *http.Request) 
 		row := h.pool.QueryRow(ctx, fmt.Sprintf(ipQuery, "encode(hwaddr, 'hex') = $1"), mac)
 		_ = row.Scan(&mgmtIP)
 	}
+	if mgmtIP == "" && device.ManagementIP != nil {
+		mgmtIP = *device.ManagementIP
+	}
 	if mgmtIP == "" {
-		writeError(w, http.StatusBadRequest, "no active DHCP lease — management IP unknown")
+		writeError(w, http.StatusBadRequest, "no active DHCP lease and no management IP set on device")
 		return
 	}
 
