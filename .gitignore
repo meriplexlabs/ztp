@@ -1,6 +1,7 @@
 # Environment
 .env
 docker-compose.override.yml
+Meriplex-Network-Deployment-Toolkit/
 
 # Go
 services/dashboard/api/bin/
