@@ -67,6 +67,8 @@ export interface Device {
   variables: Record<string, unknown>
   last_seen?: string
   provisioned_at?: string
+  firmware_version?: string
+  firmware_checked_at?: string
   created_at: string
   updated_at: string
 }

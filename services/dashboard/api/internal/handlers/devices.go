@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -437,6 +438,166 @@ func pushConfigSSH(mgmtIP, username, password, vendor, config string) (string, e
 	stdin.Close()
 	session.Wait()
 	return stdout.String(), nil
+}
+
+// FirmwareVersion POST /api/v1/devices/{id}/firmware-version
+// SSHes to the device, runs "show version", parses the version string, stores it in the DB, returns it.
+func (h *DeviceHandler) FirmwareVersion(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid device ID")
+		return
+	}
+	ctx := r.Context()
+	device, err := dbpkg.GetDevice(ctx, h.pool, id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "device not found")
+		return
+	}
+
+	// Resolve management IP
+	var mgmtIP string
+	ipQuery := `
+		SELECT
+			((address >> 24) & 255)::text || '.' ||
+			((address >> 16) & 255)::text || '.' ||
+			((address >> 8)  & 255)::text || '.' ||
+			(address         & 255)::text
+		FROM lease4
+		WHERE %s AND state = 0
+		LIMIT 1
+	`
+	if device.Hostname != nil {
+		row := h.pool.QueryRow(ctx, fmt.Sprintf(ipQuery, "LOWER(hostname) = LOWER($1)"), *device.Hostname)
+		_ = row.Scan(&mgmtIP)
+	}
+	if mgmtIP == "" && device.Serial != nil {
+		row := h.pool.QueryRow(ctx, fmt.Sprintf(ipQuery, "LOWER(hostname) = LOWER($1)"), *device.Serial)
+		_ = row.Scan(&mgmtIP)
+	}
+	if mgmtIP == "" && device.MAC != nil {
+		mac := strings.ReplaceAll(*device.MAC, ":", "")
+		row := h.pool.QueryRow(ctx, fmt.Sprintf(ipQuery, "encode(hwaddr, 'hex') = $1"), mac)
+		_ = row.Scan(&mgmtIP)
+	}
+	if mgmtIP == "" {
+		writeError(w, http.StatusBadRequest, "no active DHCP lease — management IP unknown")
+		return
+	}
+
+	// Resolve SSH credentials
+	merged := map[string]any{}
+	if device.ProfileID != nil {
+		if profile, err := dbpkg.GetProfile(ctx, h.pool, *device.ProfileID); err == nil {
+			for k, v := range profile.Variables {
+				merged[k] = v
+			}
+		}
+	}
+	for k, v := range device.Variables {
+		merged[k] = v
+	}
+	username := "admin"
+	if u, _ := merged["ssh_username"].(string); u != "" {
+		username = u
+	}
+	password, _ := merged["local_password"].(string)
+	if password == "" {
+		writeError(w, http.StatusBadRequest, "local_password not set on device or profile")
+		return
+	}
+
+	vendor := ""
+	if device.VendorClass != nil {
+		vendor = strings.ToLower(*device.VendorClass)
+	}
+
+	version, err := detectFirmwareVersion(mgmtIP, username, password, vendor)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "firmware detection failed: "+err.Error())
+		return
+	}
+
+	if err := dbpkg.UpdateDeviceFirmware(ctx, h.pool, id, version); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to save firmware version: "+err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"firmware_version": version})
+}
+
+func detectFirmwareVersion(mgmtIP, username, password, vendor string) (string, error) {
+	sshCfg := &ssh.ClientConfig{
+		User:            username,
+		Auth:            []ssh.AuthMethod{ssh.Password(password)},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         15 * time.Second,
+	}
+	client, err := ssh.Dial("tcp", net.JoinHostPort(mgmtIP, "22"), sshCfg)
+	if err != nil {
+		return "", fmt.Errorf("SSH connection failed: %w", err)
+	}
+	defer client.Close()
+
+	session, err := client.NewSession()
+	if err != nil {
+		return "", fmt.Errorf("SSH session failed: %w", err)
+	}
+	defer session.Close()
+
+	out, err := session.Output("show version")
+	if err != nil {
+		return "", fmt.Errorf("show version failed: %w", err)
+	}
+	output := string(out)
+
+	return parseVersionString(vendor, output), nil
+}
+
+// parseVersionString extracts a version from "show version" output using vendor-specific patterns.
+func parseVersionString(vendor, output string) string {
+	patterns := []string{}
+	switch vendor {
+	case "cisco", "cisco_ios", "cisco_ios-xe":
+		// "Cisco IOS Software, Version 15.2(7)E4" or "Cisco IOS XE Software, Version 17.3.4"
+		patterns = []string{`(?i)Version\s+(\S+),`, `(?i)Version\s+(\S+)`}
+	case "juniper", "junos":
+		// "JUNOS 21.4R3.15"
+		patterns = []string{`(?i)JUNOS\s+(\S+)`}
+	case "aruba", "hp", "hpe":
+		// "WC.16.11.0010" or "revision H.16.02.0025"
+		patterns = []string{`(?i)revision\s+(\S+)`, `(?i)Software revision\s+(\S+)`, `[A-Z]{1,3}\.\d+\.\d+\.\d+`}
+	case "extreme":
+		// "ExtremeXOS version 31.7.1.4"
+		patterns = []string{`(?i)version\s+(\d[\d.]+)`}
+	case "fortinet":
+		// "FortiOS v7.4.3"
+		patterns = []string{`(?i)FortiOS\s+v?(\S+)`, `(?i)Version\s*:\s*v?(\S+)`}
+	default:
+		patterns = []string{`(?i)(?:software\s+)?[Vv]ersion[:\s]+v?(\S+)`}
+	}
+
+	for _, pat := range patterns {
+		if m := regexpFind(pat, output); m != "" {
+			return m
+		}
+	}
+	return "unknown"
+}
+
+func regexpFind(pattern, text string) string {
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return ""
+	}
+	sub := re.FindStringSubmatch(text)
+	if len(sub) > 1 {
+		return strings.TrimRight(sub[1], ",;")
+	}
+	if len(sub) == 1 {
+		return strings.TrimRight(sub[0], ",;")
+	}
+	return ""
 }
 
 // renderConfig calls the Python renderer service.

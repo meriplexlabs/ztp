@@ -50,10 +50,12 @@ type Device struct {
 	Status        DeviceStatus `json:"status"`
 	ProfileID     *uuid.UUID   `json:"profile_id,omitempty"`
 	Variables     map[string]any `json:"variables"`
-	LastSeen      *time.Time   `json:"last_seen,omitempty"`
-	ProvisionedAt *time.Time   `json:"provisioned_at,omitempty"`
-	CreatedAt     time.Time    `json:"created_at"`
-	UpdatedAt     time.Time    `json:"updated_at"`
+	LastSeen          *time.Time `json:"last_seen,omitempty"`
+	ProvisionedAt     *time.Time `json:"provisioned_at,omitempty"`
+	FirmwareVersion   *string    `json:"firmware_version,omitempty"`
+	FirmwareCheckedAt *time.Time `json:"firmware_checked_at,omitempty"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
 }
 
 // ─── Config Template ──────────────────────────────────────────────────────────

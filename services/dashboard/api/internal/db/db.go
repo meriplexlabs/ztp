@@ -95,7 +95,8 @@ func ListUsers(ctx context.Context, pool *pgxpool.Pool) ([]models.User, error) {
 func ListDevices(ctx context.Context, pool *pgxpool.Pool) ([]models.Device, error) {
 	rows, err := pool.Query(ctx,
 		`SELECT id, mac, serial, vendor_class, hostname, description,
-		        status, profile_id, variables, last_seen, provisioned_at, created_at, updated_at
+		        status, profile_id, variables, last_seen, provisioned_at,
+		        firmware_version, firmware_checked_at, created_at, updated_at
 		 FROM devices ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
@@ -115,7 +116,8 @@ func ListDevices(ctx context.Context, pool *pgxpool.Pool) ([]models.Device, erro
 func GetDevice(ctx context.Context, pool *pgxpool.Pool, id uuid.UUID) (*models.Device, error) {
 	row := pool.QueryRow(ctx,
 		`SELECT id, mac, serial, vendor_class, hostname, description,
-		        status, profile_id, variables, last_seen, provisioned_at, created_at, updated_at
+		        status, profile_id, variables, last_seen, provisioned_at,
+		        firmware_version, firmware_checked_at, created_at, updated_at
 		 FROM devices WHERE id = $1`, id)
 	return scanDevice(row)
 }
@@ -124,7 +126,8 @@ func GetDeviceByIdentifier(ctx context.Context, pool *pgxpool.Pool, identifier s
 	// Try serial first — avoids macaddr cast errors for non-MAC identifiers.
 	row := pool.QueryRow(ctx,
 		`SELECT id, mac, serial, vendor_class, hostname, description,
-		        status, profile_id, variables, last_seen, provisioned_at, created_at, updated_at
+		        status, profile_id, variables, last_seen, provisioned_at,
+		        firmware_version, firmware_checked_at, created_at, updated_at
 		 FROM devices WHERE serial = $1 LIMIT 1`, identifier)
 	d, err := scanDevice(row)
 	if err == nil {
@@ -133,7 +136,8 @@ func GetDeviceByIdentifier(ctx context.Context, pool *pgxpool.Pool, identifier s
 	// Fall back to MAC lookup (only attempted when identifier looks like a MAC).
 	row = pool.QueryRow(ctx,
 		`SELECT id, mac, serial, vendor_class, hostname, description,
-		        status, profile_id, variables, last_seen, provisioned_at, created_at, updated_at
+		        status, profile_id, variables, last_seen, provisioned_at,
+		        firmware_version, firmware_checked_at, created_at, updated_at
 		 FROM devices WHERE mac::text = lower($1) LIMIT 1`, identifier)
 	return scanDevice(row)
 }
@@ -148,7 +152,7 @@ func scanDevice(row scannable) (*models.Device, error) {
 	err := row.Scan(
 		&d.ID, &d.MAC, &d.Serial, &d.VendorClass, &d.Hostname, &d.Description,
 		&d.Status, &d.ProfileID, &variables, &d.LastSeen, &d.ProvisionedAt,
-		&d.CreatedAt, &d.UpdatedAt,
+		&d.FirmwareVersion, &d.FirmwareCheckedAt, &d.CreatedAt, &d.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -189,6 +193,13 @@ func UpdateDevice(ctx context.Context, pool *pgxpool.Pool, d *models.Device) err
 
 func DeleteDevice(ctx context.Context, pool *pgxpool.Pool, id uuid.UUID) error {
 	_, err := pool.Exec(ctx, `DELETE FROM devices WHERE id = $1`, id)
+	return err
+}
+
+func UpdateDeviceFirmware(ctx context.Context, pool *pgxpool.Pool, id uuid.UUID, version string) error {
+	_, err := pool.Exec(ctx,
+		`UPDATE devices SET firmware_version=$1, firmware_checked_at=NOW() WHERE id=$2`,
+		version, id)
 	return err
 }
 

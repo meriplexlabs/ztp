@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, type Device, type DeviceProfile, type DHCPLease } from '@/lib/api'
 import { formatRelative } from '@/lib/utils'
-import { Server, RefreshCw, X, Plus, Trash2, Terminal, Download, GitCompare } from 'lucide-react'
+import { Server, RefreshCw, X, Plus, Trash2, Terminal, Download, GitCompare, Cpu } from 'lucide-react'
 import { diffLines } from 'diff'
 
 const STATUS_COLORS: Record<Device['status'], string> = {
@@ -346,6 +346,9 @@ function DeviceDrawer({
   const [vars, setVars] = useState<[string, string][]>(
     Object.entries(device.variables ?? {}).map(([k, v]) => [k, String(v)])
   )
+  const [firmwareVersion,   setFirmwareVersion]   = useState(device.firmware_version ?? null)
+  const [firmwareCheckedAt, setFirmwareCheckedAt] = useState(device.firmware_checked_at ?? null)
+  const [refreshingFirmware, setRefreshingFirmware] = useState(false)
   const [error,       setError]       = useState<string | null>(null)
   const [downloading,        setDownloading]        = useState(false)
   const [downloadingRunning, setDownloadingRunning] = useState(false)
@@ -396,6 +399,21 @@ function DeviceDrawer({
       setError(e instanceof Error ? e.message : 'Download failed')
     } finally {
       setDownloading(false)
+    }
+  }
+
+  async function handleRefreshFirmware() {
+    setRefreshingFirmware(true)
+    setError(null)
+    try {
+      const res = await api.post<{ firmware_version: string }>(`/api/v1/devices/${device.id}/firmware-version`, {})
+      setFirmwareVersion(res.firmware_version)
+      setFirmwareCheckedAt(new Date().toISOString())
+      qc.invalidateQueries({ queryKey: ['devices'] })
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Firmware check failed')
+    } finally {
+      setRefreshingFirmware(false)
     }
   }
 
@@ -476,6 +494,25 @@ function DeviceDrawer({
             <div>
               <p className="text-xs text-muted-foreground mb-1">Provisioned</p>
               <p className="text-xs">{device.provisioned_at ? formatRelative(device.provisioned_at) : '—'}</p>
+            </div>
+            <div className="col-span-2">
+              <p className="text-xs text-muted-foreground mb-1">Firmware Version</p>
+              <div className="flex items-center gap-2">
+                <Cpu className="h-3 w-3 text-muted-foreground shrink-0" />
+                <span className="text-xs font-mono">{firmwareVersion ?? '—'}</span>
+                {firmwareCheckedAt && (
+                  <span className="text-xs text-muted-foreground">· checked {formatRelative(firmwareCheckedAt)}</span>
+                )}
+                <button
+                  onClick={handleRefreshFirmware}
+                  disabled={refreshingFirmware || !lease?.ip_address}
+                  title={lease?.ip_address ? 'Refresh firmware version via SSH' : 'No management IP available'}
+                  className="ml-auto flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground disabled:opacity-40"
+                >
+                  <RefreshCw className={`h-3 w-3 ${refreshingFirmware ? 'animate-spin' : ''}`} />
+                  {refreshingFirmware ? 'Checking…' : 'Refresh'}
+                </button>
+              </div>
             </div>
             {device.profile_id && (
               <div>
