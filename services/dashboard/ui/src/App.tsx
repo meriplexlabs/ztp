@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import Layout from '@/components/Layout'
 import LoginPage from '@/pages/LoginPage'
+import DashboardPage from '@/pages/DashboardPage'
 import DevicesPage from '@/pages/DevicesPage'
 import TemplatesPage from '@/pages/TemplatesPage'
 import ProfilesPage from '@/pages/ProfilesPage'
@@ -34,7 +35,8 @@ export default function App() {
           </RequireAuth>
         }
       >
-        <Route index element={<Navigate to="/devices" replace />} />
+        <Route index element={<DashboardPage />} />
+        <Route path="dashboard" element={<DashboardPage />} />
         <Route path="devices" element={<DevicesPage />} />
         <Route path="templates" element={<TemplatesPage />} />
         <Route path="profiles" element={<ProfilesPage />} />

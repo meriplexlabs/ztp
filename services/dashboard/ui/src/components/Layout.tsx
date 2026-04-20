@@ -1,17 +1,18 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import {
-  Server, FileCode2, Network, ScrollText, Settings, LogOut, Router, Users,
+  Server, FileCode2, Network, ScrollText, Settings, LogOut, Router, Users, LayoutDashboard,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { cn } from '@/lib/utils'
 
 const nav = [
-  { to: '/devices',   label: 'Devices',   icon: Server },
-  { to: '/templates', label: 'Templates', icon: FileCode2 },
-  { to: '/profiles',  label: 'Profiles',  icon: Users },
+  { to: '/',          label: 'Overview',    icon: LayoutDashboard },
+  { to: '/devices',   label: 'Devices',     icon: Server },
+  { to: '/templates', label: 'Templates',   icon: FileCode2 },
+  { to: '/profiles',  label: 'Profiles',    icon: Users },
   { to: '/leases',    label: 'DHCP Leases', icon: Network },
-  { to: '/events',    label: 'Events',    icon: ScrollText },
-  { to: '/settings',  label: 'Settings',  icon: Settings },
+  { to: '/events',    label: 'Events',      icon: ScrollText },
+  { to: '/settings',  label: 'Settings',    icon: Settings },
 ]
 
 export default function Layout() {
@@ -39,6 +40,7 @@ export default function Layout() {
             <NavLink
               key={to}
               to={to}
+              end={to === '/'}
               className={({ isActive }) =>
                 cn(
                   'flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors',
