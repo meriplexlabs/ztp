@@ -495,24 +495,27 @@ function DeviceDrawer({
               <p className="text-xs text-muted-foreground mb-1">Provisioned</p>
               <p className="text-xs">{device.provisioned_at ? formatRelative(device.provisioned_at) : '—'}</p>
             </div>
-            <div className="col-span-2">
+            <div>
               <p className="text-xs text-muted-foreground mb-1">Firmware Version</p>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
                 <Cpu className="h-3 w-3 text-muted-foreground shrink-0" />
                 <span className="text-xs font-mono">{firmwareVersion ?? '—'}</span>
-                {firmwareCheckedAt && (
-                  <span className="text-xs text-muted-foreground">· checked {formatRelative(firmwareCheckedAt)}</span>
-                )}
-                <button
-                  onClick={handleRefreshFirmware}
-                  disabled={refreshingFirmware || !lease?.ip_address}
-                  title={lease?.ip_address ? 'Refresh firmware version via SSH' : 'No management IP available'}
-                  className="ml-auto flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground disabled:opacity-40"
-                >
-                  <RefreshCw className={`h-3 w-3 ${refreshingFirmware ? 'animate-spin' : ''}`} />
-                  {refreshingFirmware ? 'Checking…' : 'Refresh'}
-                </button>
               </div>
+              {firmwareCheckedAt && (
+                <p className="text-xs text-muted-foreground mt-0.5">checked {formatRelative(firmwareCheckedAt)}</p>
+              )}
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground mb-1"> </p>
+              <button
+                onClick={handleRefreshFirmware}
+                disabled={refreshingFirmware || !lease?.ip_address}
+                title={lease?.ip_address ? 'Refresh firmware version via SSH' : 'No management IP available'}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground disabled:opacity-40"
+              >
+                <RefreshCw className={`h-3 w-3 ${refreshingFirmware ? 'animate-spin' : ''}`} />
+                {refreshingFirmware ? 'Checking…' : 'Refresh'}
+              </button>
             </div>
             {device.profile_id && (
               <div>
