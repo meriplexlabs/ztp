@@ -815,11 +815,117 @@ function BulkActionBar({
   )
 }
 
+const VENDORS = ['cisco', 'juniper', 'aruba', 'extreme', 'fortinet', 'other']
+
+function NewDeviceModal({ profiles, onClose }: { profiles: DeviceProfile[]; onClose: () => void }) {
+  const qc = useQueryClient()
+  const [hostname,    setHostname]    = useState('')
+  const [mac,         setMac]         = useState('')
+  const [serial,      setSerial]      = useState('')
+  const [vendor,      setVendor]      = useState('')
+  const [description, setDescription] = useState('')
+  const [profileId,   setProfileId]   = useState('')
+  const [error,       setError]       = useState<string | null>(null)
+
+  const save = useMutation({
+    mutationFn: () => {
+      if (!mac.trim() && !serial.trim()) {
+        throw new Error('At least one of MAC or Serial is required')
+      }
+      return api.post<Device>('/api/v1/devices', {
+        hostname:     hostname     || undefined,
+        mac:          mac.trim()   || undefined,
+        serial:       serial.trim() || undefined,
+        vendor_class: vendor       || undefined,
+        description:  description  || undefined,
+        profile_id:   profileId    || undefined,
+        variables:    {},
+      })
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['devices'] })
+      onClose()
+    },
+    onError: (e: Error) => setError(e.message),
+  })
+
+  return (
+    <>
+      <div className="fixed inset-0 bg-black/30 z-40" onClick={onClose} />
+      <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
+        <div className="bg-background border rounded-xl shadow-xl w-full max-w-md">
+          <div className="flex items-center justify-between px-5 py-4 border-b">
+            <p className="font-semibold text-sm">Add Device</p>
+            <button onClick={onClose}><X className="h-4 w-4" /></button>
+          </div>
+          <div className="px-5 py-4 space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">MAC Address</label>
+                <input value={mac} onChange={e => setMac(e.target.value)}
+                  placeholder="aa:bb:cc:dd:ee:ff"
+                  className="w-full text-sm font-mono border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/50" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">Serial Number</label>
+                <input value={serial} onChange={e => setSerial(e.target.value)}
+                  placeholder="e.g. FXS1234ABCD"
+                  className="w-full text-sm font-mono border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/50" />
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground -mt-2">At least one of MAC or Serial is required.</p>
+            <div>
+              <label className="block text-xs font-medium text-muted-foreground mb-1">Hostname</label>
+              <input value={hostname} onChange={e => setHostname(e.target.value)}
+                placeholder="e.g. sw-core-01"
+                className="w-full text-sm border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/50" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">Vendor</label>
+                <select value={vendor} onChange={e => setVendor(e.target.value)}
+                  className="w-full text-sm border rounded px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/50">
+                  <option value="">— Select —</option>
+                  {VENDORS.map(v => <option key={v} value={v} className="capitalize">{VENDOR_DISPLAY[v] ?? v}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-muted-foreground mb-1">Model / Description</label>
+                <input value={description} onChange={e => setDescription(e.target.value)}
+                  placeholder="e.g. FortiSwitch 148F"
+                  className="w-full text-sm border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/50" />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-muted-foreground mb-1">Profile <span className="font-normal text-muted-foreground/60">(optional)</span></label>
+              <select value={profileId} onChange={e => setProfileId(e.target.value)}
+                className="w-full text-sm border rounded px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/50">
+                <option value="">— No profile —</option>
+                {profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+            {error && <p className="text-xs text-destructive">{error}</p>}
+          </div>
+          <div className="px-5 py-4 border-t flex justify-end gap-2">
+            <button onClick={onClose}
+              className="text-sm px-4 py-1.5 rounded border hover:bg-accent">Cancel</button>
+            <button onClick={() => save.mutate()} disabled={save.isPending}
+              className="text-sm px-4 py-1.5 rounded bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50">
+              {save.isPending ? 'Adding…' : 'Add Device'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
+  )
+}
+
 export default function DevicesPage() {
   const [selected,      setSelected]    = useState<Device | null>(null)
   const [terminalDevice, setTerminal]   = useState<Device | null>(null)
   const [diffDevice,    setDiffDevice]  = useState<Device | null>(null)
   const [checkedIds,    setCheckedIds]  = useState<Set<string>>(new Set())
+  const [showNewDevice, setShowNewDevice] = useState(false)
 
   const { data: devices, isLoading, error, refetch, isFetching } = useQuery<Device[]>({
     queryKey: ['devices'],
@@ -874,14 +980,22 @@ export default function DevicesPage() {
             <span className="text-sm text-muted-foreground">({devices.length})</span>
           )}
         </div>
-        <button
-          onClick={() => refetch()}
-          disabled={isFetching}
-          className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground disabled:opacity-50 transition-colors"
-        >
-          <RefreshCw className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
-          Refresh
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowNewDevice(true)}
+            className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded bg-primary text-primary-foreground hover:opacity-90"
+          >
+            <Plus className="h-4 w-4" /> Add Device
+          </button>
+          <button
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground disabled:opacity-50 transition-colors"
+          >
+            <RefreshCw className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {isLoading && <div className="text-muted-foreground text-sm">Loading devices…</div>}
@@ -1016,6 +1130,9 @@ export default function DevicesPage() {
       )}
       {diffDevice && (
         <DiffModal device={diffDevice} onClose={() => setDiffDevice(null)} />
+      )}
+      {showNewDevice && (
+        <NewDeviceModal profiles={profiles} onClose={() => setShowNewDevice(false)} />
       )}
     </div>
   )
