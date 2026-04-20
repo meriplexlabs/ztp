@@ -105,9 +105,18 @@ function DiffModal({ device, onClose }: { device: Device; onClose: () => void })
     return () => { cancelled = true }
   })
 
+  function normalize(text: string) {
+    return text
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .split('\n')
+      .map(l => l.trimEnd())
+      .join('\n')
+  }
+
   const hunks = (() => {
     if (!deployed || !running) return []
-    const changes = diffLines(deployed, running)
+    const changes = diffLines(normalize(deployed), normalize(running))
     const result: { type: 'context' | 'added' | 'removed'; lines: string[] }[] = []
     let contextBuf: string[] = []
 

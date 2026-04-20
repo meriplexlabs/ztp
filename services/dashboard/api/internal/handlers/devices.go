@@ -240,9 +240,12 @@ func (h *DeviceHandler) RunningConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	normalized := strings.ReplaceAll(string(out), "\r\n", "\n")
+	normalized  = strings.ReplaceAll(normalized, "\r", "\n")
+
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	w.Write(out)
+	fmt.Fprint(w, normalized)
 }
 
 // ZTPConfig GET /api/v1/config/{identifier}
