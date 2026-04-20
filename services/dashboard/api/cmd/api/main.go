@@ -138,7 +138,8 @@ func main() {
 		r.Put("/api/v1/devices/{id}",         deviceH.Update)
 		r.Delete("/api/v1/devices/{id}",      deviceH.Delete)
 		r.Get("/api/v1/devices/{id}/config",         deviceH.GetConfig)
-			r.Get("/api/v1/devices/{id}/running-config", deviceH.RunningConfig)
+		r.Get("/api/v1/devices/{id}/running-config", deviceH.RunningConfig)
+		r.Post("/api/v1/devices/{id}/push-config",   deviceH.PushConfig)
 
 		// Templates
 		r.Get("/api/v1/templates",             templateH.List)

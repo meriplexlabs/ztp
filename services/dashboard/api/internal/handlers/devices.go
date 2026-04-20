@@ -273,6 +273,172 @@ func (h *DeviceHandler) ZTPConfig(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, config)
 }
 
+// PushConfig POST /api/v1/devices/{id}/push-config
+// Renders the device's config and does a full replace via SSH.
+func (h *DeviceHandler) PushConfig(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid device ID")
+		return
+	}
+	ctx := r.Context()
+	device, err := dbpkg.GetDevice(ctx, h.pool, id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "device not found")
+		return
+	}
+
+	// Render config
+	config, err := h.renderConfig(r, device)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "render failed: "+err.Error())
+		return
+	}
+
+	// Resolve management IP (same strategy as RunningConfig)
+	var mgmtIP string
+	ipQuery := `
+		SELECT
+			((address >> 24) & 255)::text || '.' ||
+			((address >> 16) & 255)::text || '.' ||
+			((address >> 8)  & 255)::text || '.' ||
+			(address         & 255)::text
+		FROM lease4
+		WHERE %s AND state = 0
+		LIMIT 1
+	`
+	if device.Hostname != nil {
+		row := h.pool.QueryRow(ctx, fmt.Sprintf(ipQuery, "LOWER(hostname) = LOWER($1)"), *device.Hostname)
+		_ = row.Scan(&mgmtIP)
+	}
+	if mgmtIP == "" && device.Serial != nil {
+		row := h.pool.QueryRow(ctx, fmt.Sprintf(ipQuery, "LOWER(hostname) = LOWER($1)"), *device.Serial)
+		_ = row.Scan(&mgmtIP)
+	}
+	if mgmtIP == "" && device.MAC != nil {
+		mac := strings.ReplaceAll(*device.MAC, ":", "")
+		row := h.pool.QueryRow(ctx, fmt.Sprintf(ipQuery, "encode(hwaddr, 'hex') = $1"), mac)
+		_ = row.Scan(&mgmtIP)
+	}
+	if mgmtIP == "" {
+		writeError(w, http.StatusBadRequest, "no active DHCP lease — management IP unknown")
+		return
+	}
+
+	// Resolve SSH credentials
+	merged := map[string]any{}
+	if device.ProfileID != nil {
+		if profile, err := dbpkg.GetProfile(ctx, h.pool, *device.ProfileID); err == nil {
+			for k, v := range profile.Variables {
+				merged[k] = v
+			}
+		}
+	}
+	for k, v := range device.Variables {
+		merged[k] = v
+	}
+	username := "admin"
+	if u, _ := merged["ssh_username"].(string); u != "" {
+		username = u
+	}
+	password, _ := merged["local_password"].(string)
+	if password == "" {
+		writeError(w, http.StatusBadRequest, "local_password not set on device or profile")
+		return
+	}
+
+	// Push config via SSH
+	vendor := ""
+	if device.VendorClass != nil {
+		vendor = *device.VendorClass
+	}
+	output, err := pushConfigSSH(mgmtIP, username, password, vendor, config)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"success": true,
+		"output":  strings.ReplaceAll(strings.ReplaceAll(output, "\r\n", "\n"), "\r", "\n"),
+	})
+}
+
+func pushConfigSSH(mgmtIP, username, password, vendor, config string) (string, error) {
+	sshCfg := &ssh.ClientConfig{
+		User:            username,
+		Auth:            []ssh.AuthMethod{ssh.Password(password)},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         15 * time.Second,
+	}
+	client, err := ssh.Dial("tcp", net.JoinHostPort(mgmtIP, "22"), sshCfg)
+	if err != nil {
+		return "", fmt.Errorf("SSH connection failed: %w", err)
+	}
+	defer client.Close()
+
+	session, err := client.NewSession()
+	if err != nil {
+		return "", fmt.Errorf("SSH session failed: %w", err)
+	}
+	defer session.Close()
+
+	var stdout bytes.Buffer
+	session.Stdout = &stdout
+	session.Stderr = &stdout
+
+	stdin, err := session.StdinPipe()
+	if err != nil {
+		return "", fmt.Errorf("stdin pipe failed: %w", err)
+	}
+
+	modes := ssh.TerminalModes{ssh.ECHO: 0, ssh.TTY_OP_ISPEED: 38400, ssh.TTY_OP_OSPEED: 38400}
+	if err := session.RequestPty("xterm", 80, 200, modes); err != nil {
+		return "", fmt.Errorf("PTY failed: %w", err)
+	}
+	if err := session.Shell(); err != nil {
+		return "", fmt.Errorf("shell failed: %w", err)
+	}
+	time.Sleep(1 * time.Second)
+
+	send := func(line string, delay time.Duration) {
+		fmt.Fprintf(stdin, "%s\n", line)
+		time.Sleep(delay)
+	}
+
+	lines := strings.Split(strings.ReplaceAll(config, "\r\n", "\n"), "\n")
+
+	switch vendor {
+	case "juniper":
+		send("configure exclusive", 800*time.Millisecond)
+		send("load override terminal", 300*time.Millisecond)
+		for _, line := range lines {
+			fmt.Fprintf(stdin, "%s\n", line)
+			time.Sleep(20 * time.Millisecond)
+		}
+		stdin.Write([]byte{4}) // Ctrl+D — end terminal input
+		time.Sleep(1 * time.Second)
+		send("commit and-quit", 3*time.Second)
+
+	default: // cisco, aruba, extreme, fortinet
+		send("configure terminal", 500*time.Millisecond)
+		for _, line := range lines {
+			line = strings.TrimRight(line, " \t")
+			if line == "" || strings.HasPrefix(line, "!") || strings.HasPrefix(line, "#") {
+				continue
+			}
+			fmt.Fprintf(stdin, "%s\n", line)
+			time.Sleep(80 * time.Millisecond)
+		}
+		send("end", 300*time.Millisecond)
+		send("write memory", 3*time.Second)
+	}
+
+	stdin.Close()
+	session.Wait()
+	return stdout.String(), nil
+}
+
 // renderConfig calls the Python renderer service.
 func (h *DeviceHandler) renderConfig(r *http.Request, device *models.Device) (string, error) {
 	if device.ProfileID == nil {

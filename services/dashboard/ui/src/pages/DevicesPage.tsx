@@ -85,6 +85,9 @@ function DiffModal({ device, onClose }: { device: Device; onClose: () => void })
   const [running,  setRunning]  = useState<string | null>(null)
   const [error,    setError]    = useState<string | null>(null)
   const [loading,  setLoading]  = useState(true)
+  const [pushing,  setPushing]  = useState(false)
+  const [pushResult, setPushResult] = useState<{ success: boolean; output: string } | null>(null)
+  const [confirmPush, setConfirmPush] = useState(false)
 
   useState(() => {
     let cancelled = false
@@ -147,6 +150,21 @@ function DiffModal({ device, onClose }: { device: Device; onClose: () => void })
   const removed = hunks.filter(h => h.type === 'removed').reduce((n, h) => n + h.lines.length, 0)
   const clean   = deployed && running && added === 0 && removed === 0
 
+  async function handlePush() {
+    setPushing(true)
+    setConfirmPush(false)
+    try {
+      const result = await api.post<{ success: boolean; output: string }>(
+        `/api/v1/devices/${device.id}/push-config`, {}
+      )
+      setPushResult(result)
+    } catch (e: unknown) {
+      setPushResult({ success: false, output: e instanceof Error ? e.message : 'Push failed' })
+    } finally {
+      setPushing(false)
+    }
+  }
+
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-[2px]">
       <div className="w-[80vw] max-w-5xl max-h-[85vh] flex flex-col bg-background border rounded-xl shadow-2xl overflow-hidden">
@@ -171,6 +189,14 @@ function DiffModal({ device, onClose }: { device: Device; onClose: () => void })
             <X className="h-4 w-4" />
           </button>
         </div>
+
+        {/* Push result */}
+        {pushResult && (
+          <div className={`px-5 py-3 border-b text-xs font-mono shrink-0 max-h-40 overflow-auto ${pushResult.success ? 'bg-green-950/40 text-green-300' : 'bg-red-950/40 text-red-300'}`}>
+            <p className="font-semibold mb-1">{pushResult.success ? '✓ Push successful' : '✗ Push failed'}</p>
+            <pre className="whitespace-pre-wrap">{pushResult.output}</pre>
+          </div>
+        )}
 
         {/* Body */}
         <div className="flex-1 overflow-auto bg-[#1e1e2e] font-mono text-xs leading-5">
@@ -212,6 +238,38 @@ function DiffModal({ device, onClose }: { device: Device; onClose: () => void })
             </div>
           ))}
         </div>
+      </div>
+
+        {/* Footer — push action */}
+        {!loading && !error && !clean && !pushResult && (
+          <div className="border-t px-5 py-3 shrink-0 flex items-center justify-between bg-background">
+            {confirmPush ? (
+              <>
+                <span className="text-xs text-muted-foreground">This will replace the running config. Are you sure?</span>
+                <div className="flex gap-2">
+                  <button onClick={() => setConfirmPush(false)}
+                    className="text-sm px-3 py-1.5 rounded border hover:bg-accent">Cancel</button>
+                  <button onClick={handlePush} disabled={pushing}
+                    className="text-sm px-4 py-1.5 rounded bg-destructive text-destructive-foreground hover:opacity-90 disabled:opacity-50">
+                    {pushing ? 'Pushing…' : 'Confirm Push'}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <span className="text-xs text-muted-foreground">
+                  {removed > 0 && <span className="text-red-500 font-mono">−{removed} </span>}
+                  {added   > 0 && <span className="text-green-500 font-mono">+{added} </span>}
+                  lines differ from deployed config
+                </span>
+                <button onClick={() => setConfirmPush(true)}
+                  className="flex items-center gap-1.5 text-sm px-4 py-1.5 rounded bg-primary text-primary-foreground hover:opacity-90">
+                  <GitCompare className="h-4 w-4" /> Apply Rendered Config
+                </button>
+              </>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )
