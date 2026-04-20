@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { api, type Device, type DeviceProfile, type DHCPLease } from '@/lib/api'
 import { formatRelative } from '@/lib/utils'
-import { Server, RefreshCw, X, Plus, Trash2, Terminal, Download, GitCompare, Cpu } from 'lucide-react'
+import { Server, RefreshCw, X, Plus, Trash2, Terminal, Download, GitCompare, Cpu, CheckCircle, XCircle } from 'lucide-react'
 import { diffLines } from 'diff'
 
 const STATUS_COLORS: Record<Device['status'], string> = {
@@ -670,10 +670,156 @@ function DeviceDrawer({
   )
 }
 
+// ─── Bulk action types ────────────────────────────────────────────────────────
+
+type BulkOp = { id: string; status: 'pending' | 'ok' | 'error'; message?: string }
+
+function BulkActionBar({
+  selected, devices, profiles, onClear, onRefresh,
+}: {
+  selected: Set<string>
+  devices: Device[]
+  profiles: DeviceProfile[]
+  onClear: () => void
+  onRefresh: () => void
+}) {
+  const qc = useQueryClient()
+  const [assignProfileId, setAssignProfileId] = useState('')
+  const [ops, setOps]     = useState<BulkOp[] | null>(null)
+  const [running, setRunning] = useState(false)
+
+  const selectedDevices = devices.filter(d => selected.has(d.id))
+
+  function updateOp(id: string, patch: Partial<BulkOp>) {
+    setOps(prev => prev ? prev.map(o => o.id === id ? { ...o, ...patch } : o) : prev)
+  }
+
+  async function runBulk(label: string, fn: (d: Device) => Promise<void>) {
+    setRunning(true)
+    setOps(selectedDevices.map(d => ({ id: d.id, status: 'pending' })))
+    await Promise.allSettled(
+      selectedDevices.map(async d => {
+        try {
+          await fn(d)
+          updateOp(d.id, { status: 'ok' })
+        } catch (e: unknown) {
+          updateOp(d.id, { status: 'error', message: e instanceof Error ? e.message : String(e) })
+        }
+      })
+    )
+    setRunning(false)
+    qc.invalidateQueries({ queryKey: ['devices'] })
+    onRefresh()
+  }
+
+  async function handleAssignProfile() {
+    if (!assignProfileId) return
+    await runBulk('assign', async (d) => {
+      await api.put(`/api/v1/devices/${d.id}`, { ...d, profile_id: assignProfileId })
+    })
+  }
+
+  async function handleFirmwareRefresh() {
+    await runBulk('firmware', async (d) => {
+      await api.post(`/api/v1/devices/${d.id}/firmware-version`, {})
+    })
+  }
+
+  async function handlePushConfig() {
+    await runBulk('push', async (d) => {
+      await api.post(`/api/v1/devices/${d.id}/push-config`, {})
+    })
+  }
+
+  async function handleDelete() {
+    if (!confirm(`Delete ${selected.size} device${selected.size !== 1 ? 's' : ''}?`)) return
+    await runBulk('delete', async (d) => {
+      await api.delete(`/api/v1/devices/${d.id}`)
+    })
+    onClear()
+  }
+
+  if (ops) {
+    const done    = ops.filter(o => o.status !== 'pending').length
+    const errors  = ops.filter(o => o.status === 'error')
+    const allDone = done === ops.length
+    return (
+      <div className="mb-4 rounded-lg border bg-card p-4">
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-sm font-medium">
+            {running ? `Processing… ${done}/${ops.length}` : `Done — ${ops.length - errors.length} succeeded, ${errors.length} failed`}
+          </p>
+          {allDone && (
+            <button onClick={() => { setOps(null); onClear() }}
+              className="text-xs text-muted-foreground hover:text-foreground">Dismiss</button>
+          )}
+        </div>
+        <div className="space-y-1 max-h-40 overflow-auto">
+          {ops.map(op => {
+            const d = devices.find(x => x.id === op.id)
+            return (
+              <div key={op.id} className="flex items-center gap-2 text-xs">
+                {op.status === 'pending' && <RefreshCw className="h-3 w-3 animate-spin text-muted-foreground" />}
+                {op.status === 'ok'      && <CheckCircle className="h-3 w-3 text-green-600" />}
+                {op.status === 'error'   && <XCircle     className="h-3 w-3 text-destructive" />}
+                <span className="font-medium">{d?.hostname ?? d?.serial ?? op.id.slice(0, 8)}</span>
+                {op.message && <span className="text-destructive">{op.message}</span>}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mb-4 rounded-lg border bg-primary/5 border-primary/20 px-4 py-3 flex items-center gap-3 flex-wrap">
+      <span className="text-sm font-medium text-primary">{selected.size} selected</span>
+      <div className="h-4 w-px bg-border" />
+
+      {/* Assign profile */}
+      <div className="flex items-center gap-1.5">
+        <select value={assignProfileId} onChange={e => setAssignProfileId(e.target.value)}
+          className="text-xs border rounded px-2 py-1 bg-background focus:outline-none focus:ring-1 focus:ring-primary/50">
+          <option value="">Assign profile…</option>
+          {profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+        <button onClick={handleAssignProfile} disabled={!assignProfileId || running}
+          className="text-xs px-2.5 py-1 rounded bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40">
+          Apply
+        </button>
+      </div>
+
+      <div className="h-4 w-px bg-border" />
+
+      <button onClick={handleFirmwareRefresh} disabled={running}
+        className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded border hover:bg-accent disabled:opacity-40">
+        <Cpu className="h-3.5 w-3.5" /> Check Firmware
+      </button>
+
+      <button onClick={handlePushConfig} disabled={running}
+        className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded border hover:bg-accent disabled:opacity-40">
+        <GitCompare className="h-3.5 w-3.5" /> Push Config
+      </button>
+
+      <div className="ml-auto flex items-center gap-2">
+        <button onClick={handleDelete} disabled={running}
+          className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded border border-destructive/40 text-destructive hover:bg-destructive/10 disabled:opacity-40">
+          <Trash2 className="h-3.5 w-3.5" /> Delete
+        </button>
+        <button onClick={onClear} className="text-xs text-muted-foreground hover:text-foreground px-2">
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function DevicesPage() {
-  const [selected, setSelected]       = useState<Device | null>(null)
-  const [terminalDevice, setTerminal] = useState<Device | null>(null)
-  const [diffDevice, setDiffDevice]   = useState<Device | null>(null)
+  const [selected,      setSelected]    = useState<Device | null>(null)
+  const [terminalDevice, setTerminal]   = useState<Device | null>(null)
+  const [diffDevice,    setDiffDevice]  = useState<Device | null>(null)
+  const [checkedIds,    setCheckedIds]  = useState<Set<string>>(new Set())
 
   const { data: devices, isLoading, error, refetch, isFetching } = useQuery<Device[]>({
     queryKey: ['devices'],
@@ -696,6 +842,27 @@ export default function DevicesPage() {
       (d.mac && l.hw_address === d.mac)
     )
   }
+
+  function toggleCheck(id: string, e: React.MouseEvent) {
+    e.stopPropagation()
+    setCheckedIds(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  function toggleAll() {
+    if (!devices) return
+    if (checkedIds.size === devices.length) {
+      setCheckedIds(new Set())
+    } else {
+      setCheckedIds(new Set(devices.map(d => d.id)))
+    }
+  }
+
+  const allChecked = !!devices && devices.length > 0 && checkedIds.size === devices.length
+  const someChecked = checkedIds.size > 0
 
   return (
     <div className="p-6">
@@ -729,88 +896,108 @@ export default function DevicesPage() {
       )}
 
       {devices && devices.length > 0 && (
-        <div className="border rounded-lg overflow-hidden">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-muted/50 border-b">
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Hostname</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">IP</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">MAC</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Serial</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Vendor / Model</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">ZTP Method</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Profile</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Firmware</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Status</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Last Seen</th>
-                <th className="w-16" />
-              </tr>
-            </thead>
-            <tbody>
-              {devices.map((d, i) => {
-                const profile = profiles.find(p => p.id === d.profile_id)
-                const lease   = getLeaseForDevice(d)
-                const vendor  = d.vendor_class ? (VENDOR_DISPLAY[d.vendor_class] ?? d.vendor_class) : null
-                const model   = d.description ?? null
-                return (
-                  <tr
-                    key={d.id}
-                    onClick={() => setSelected(d)}
-                    className={`group cursor-pointer hover:bg-muted/40 transition-colors ${i % 2 === 0 ? '' : 'bg-muted/20'}`}
-                  >
-                    <td className="px-4 py-3 font-medium">{d.hostname ?? <span className="text-muted-foreground">—</span>}</td>
-                    <td className="px-4 py-3 font-mono text-xs">{lease?.ip_address ?? '—'}</td>
-                    <td className="px-4 py-3 font-mono text-xs">{d.mac ?? lease?.hw_address ?? '—'}</td>
-                    <td className="px-4 py-3 font-mono text-xs">{d.serial ?? '—'}</td>
-                    <td className="px-4 py-3 text-xs">
-                      {vendor || model
-                        ? <span>{[vendor, model].filter(Boolean).join(' ')}</span>
-                        : <span className="text-muted-foreground">—</span>
-                      }
-                    </td>
-                    <td className="px-4 py-3 text-xs text-muted-foreground">
-                      {d.vendor_class ? (ZTP_METHOD[d.vendor_class] ?? d.vendor_class) : '—'}
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground text-xs">{profile?.name ?? '—'}</td>
-                    <td className="px-4 py-3 text-xs font-mono">
-                      {d.firmware_version ? (
-                        <span className="flex items-center gap-1.5">
-                          {d.firmware_version}
-                          {profile?.firmware_version && profile.firmware_version !== d.firmware_version && (
-                            <span title={`Target: ${profile.firmware_version}`}
-                              className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700 font-sans">
-                              update
-                            </span>
-                          )}
+        <>
+          {someChecked && (
+            <BulkActionBar
+              selected={checkedIds}
+              devices={devices}
+              profiles={profiles}
+              onClear={() => setCheckedIds(new Set())}
+              onRefresh={() => refetch()}
+            />
+          )}
+          <div className="border rounded-lg overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-muted/50 border-b">
+                  <th className="px-4 py-3 w-8">
+                    <input type="checkbox" checked={allChecked} onChange={toggleAll}
+                      className="rounded border-gray-300 cursor-pointer" />
+                  </th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Hostname</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">IP</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">MAC</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Serial</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Vendor / Model</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">ZTP Method</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Profile</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Firmware</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Status</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Last Seen</th>
+                  <th className="w-16" />
+                </tr>
+              </thead>
+              <tbody>
+                {devices.map((d, i) => {
+                  const profile  = profiles.find(p => p.id === d.profile_id)
+                  const lease    = getLeaseForDevice(d)
+                  const vendor   = d.vendor_class ? (VENDOR_DISPLAY[d.vendor_class] ?? d.vendor_class) : null
+                  const model    = d.description ?? null
+                  const checked  = checkedIds.has(d.id)
+                  return (
+                    <tr
+                      key={d.id}
+                      onClick={() => setSelected(d)}
+                      className={`group cursor-pointer hover:bg-muted/40 transition-colors ${checked ? 'bg-primary/5' : i % 2 === 0 ? '' : 'bg-muted/20'}`}
+                    >
+                      <td className="px-4 py-3" onClick={e => toggleCheck(d.id, e)}>
+                        <input type="checkbox" checked={checked} onChange={() => {}}
+                          className="rounded border-gray-300 cursor-pointer" />
+                      </td>
+                      <td className="px-4 py-3 font-medium">{d.hostname ?? <span className="text-muted-foreground">—</span>}</td>
+                      <td className="px-4 py-3 font-mono text-xs">{lease?.ip_address ?? '—'}</td>
+                      <td className="px-4 py-3 font-mono text-xs">{d.mac ?? lease?.hw_address ?? '—'}</td>
+                      <td className="px-4 py-3 font-mono text-xs">{d.serial ?? '—'}</td>
+                      <td className="px-4 py-3 text-xs">
+                        {vendor || model
+                          ? <span>{[vendor, model].filter(Boolean).join(' ')}</span>
+                          : <span className="text-muted-foreground">—</span>
+                        }
+                      </td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">
+                        {d.vendor_class ? (ZTP_METHOD[d.vendor_class] ?? d.vendor_class) : '—'}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground text-xs">{profile?.name ?? '—'}</td>
+                      <td className="px-4 py-3 text-xs font-mono">
+                        {d.firmware_version ? (
+                          <span className="flex items-center gap-1.5">
+                            {d.firmware_version}
+                            {profile?.firmware_version && profile.firmware_version !== d.firmware_version && (
+                              <span title={`Target: ${profile.firmware_version}`}
+                                className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700 font-sans">
+                                update
+                              </span>
+                            )}
+                          </span>
+                        ) : '—'}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[d.status]}`}>
+                          {STATUS_LABELS[d.status]}
                         </span>
-                      ) : '—'}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[d.status]}`}>
-                        {STATUS_LABELS[d.status]}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground text-xs">
-                      {d.last_seen ? formatRelative(d.last_seen) : '—'}
-                    </td>
-                    <td className="px-4 py-2 text-right">
-                      {lease?.ip_address && (
-                        <button
-                          onClick={e => { e.stopPropagation(); setTerminal(d) }}
-                          title="Open terminal"
-                          className="opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-green-600 text-green-700 hover:bg-green-50"
-                        >
-                          <Terminal className="h-3.5 w-3.5" />
-                          Connect
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground text-xs">
+                        {d.last_seen ? formatRelative(d.last_seen) : '—'}
+                      </td>
+                      <td className="px-4 py-2 text-right">
+                        {lease?.ip_address && (
+                          <button
+                            onClick={e => { e.stopPropagation(); setTerminal(d) }}
+                            title="Open terminal"
+                            className="opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-green-600 text-green-700 hover:bg-green-50"
+                          >
+                            <Terminal className="h-3.5 w-3.5" />
+                            Connect
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
 
       {selected && (
