@@ -562,8 +562,8 @@ func parseVersionString(vendor, output string) string {
 		// "Cisco IOS Software, Version 15.2(7)E4" or "Cisco IOS XE Software, Version 17.3.4"
 		patterns = []string{`(?i)Version\s+(\S+),`, `(?i)Version\s+(\S+)`}
 	case "juniper", "junos":
-		// "JUNOS 21.4R3.15"
-		patterns = []string{`(?i)JUNOS\s+(\S+)`}
+		// "Junos: 21.4R3.15" (modern) or "JUNOS 21.4R3-S1.4" (older)
+		patterns = []string{`(?i)Junos:\s+(\S+)`, `(?i)JUNOS\s+(\d\S+)`}
 	case "aruba", "hp", "hpe":
 		// "WC.16.11.0010" or "revision H.16.02.0025"
 		patterns = []string{`(?i)revision\s+(\S+)`, `(?i)Software revision\s+(\S+)`, `[A-Z]{1,3}\.\d+\.\d+\.\d+`}
