@@ -14,6 +14,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
+	"github.com/ztp/api/internal/alerting"
 	"github.com/ztp/api/internal/auth"
 	cfg "github.com/ztp/api/internal/config"
 	dbpkg "github.com/ztp/api/internal/db"
@@ -45,6 +46,9 @@ func main() {
 	// Covers TFTP-only devices (e.g. HP ProCurve) that never call the HTTP ZTP endpoint.
 	go discovery.RunLeasePoller(ctx, pool, 30*time.Second)
 
+	// Background: evaluate alert conditions every minute.
+	go alerting.Run(ctx, pool, 60*time.Second)
+
 	// OIDC provider (optional)
 	var oidcProvider *auth.OIDCProvider
 	if conf.OIDCEnabled {
@@ -74,6 +78,7 @@ func main() {
 	arubaH    := handlers.NewArubaHandler(pool, conf.RendererURL)
 	inventoryH := handlers.NewInventoryHandler(pool)
 	auditH     := handlers.NewAuditHandler(pool)
+	alertH     := handlers.NewAlertHandler(pool)
 
 	// Router
 	r := chi.NewRouter()
@@ -177,6 +182,11 @@ func main() {
 
 		// Audit log
 		r.Get("/api/v1/audit", auditH.List)
+
+		// Alerts
+		r.Get("/api/v1/alerts",               alertH.List)
+		r.Get("/api/v1/alerts/count",         alertH.Count)
+		r.Post("/api/v1/alerts/{id}/resolve", alertH.Resolve)
 
 		// Password change (any authenticated user)
 		r.Put("/api/v1/users/me/password", handlers.ChangePassword(pool))

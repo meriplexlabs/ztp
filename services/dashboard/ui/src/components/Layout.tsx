@@ -1,8 +1,11 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import {
-  Server, FileCode2, Network, ScrollText, Settings, LogOut, Router, Users, LayoutDashboard, ClipboardList,
+  Server, FileCode2, Network, ScrollText, Settings, LogOut, Router,
+  Users, LayoutDashboard, ClipboardList, Bell,
 } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/hooks/useAuth'
+import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
 const nav = [
@@ -19,6 +22,12 @@ const nav = [
 export default function Layout() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
+
+  const { data: alertCount } = useQuery<{ count: number }>({
+    queryKey: ['alert-count'],
+    queryFn: () => api.get<{ count: number }>('/api/v1/alerts/count'),
+    refetchInterval: 60_000,
+  })
 
   const handleLogout = async () => {
     await logout()
@@ -55,6 +64,27 @@ export default function Layout() {
               {label}
             </NavLink>
           ))}
+
+          {/* Alerts — separate entry with badge */}
+          <NavLink
+            to="/alerts"
+            className={({ isActive }) =>
+              cn(
+                'flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors',
+                isActive
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+              )
+            }
+          >
+            <Bell className="h-4 w-4" />
+            Alerts
+            {alertCount && alertCount.count > 0 && (
+              <span className="ml-auto text-xs px-1.5 py-0.5 rounded-full bg-red-500 text-white font-medium min-w-[20px] text-center">
+                {alertCount.count}
+              </span>
+            )}
+          </NavLink>
         </nav>
 
         {/* User + logout */}

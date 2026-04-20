@@ -466,6 +466,75 @@ func DeleteTemplate(ctx context.Context, pool *pgxpool.Pool, id uuid.UUID) error
 	return err
 }
 
+// ─── Alerts ───────────────────────────────────────────────────────────────────
+
+type Alert struct {
+	ID         int64      `json:"id"`
+	Type       string     `json:"type"`
+	Severity   string     `json:"severity"`
+	DeviceID   *uuid.UUID `json:"device_id,omitempty"`
+	Message    string     `json:"message"`
+	Resolved   bool       `json:"resolved"`
+	ResolvedAt *time.Time `json:"resolved_at,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
+}
+
+func ListAlerts(ctx context.Context, pool *pgxpool.Pool, resolvedOnly bool) ([]Alert, error) {
+	q := `SELECT id, type, severity, device_id, message, resolved, resolved_at, created_at
+	      FROM alerts`
+	if !resolvedOnly {
+		q += ` WHERE resolved = FALSE`
+	}
+	q += ` ORDER BY created_at DESC LIMIT 200`
+	rows, err := pool.Query(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Alert
+	for rows.Next() {
+		var a Alert
+		if err := rows.Scan(&a.ID, &a.Type, &a.Severity, &a.DeviceID, &a.Message, &a.Resolved, &a.ResolvedAt, &a.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	if out == nil {
+		out = []Alert{}
+	}
+	return out, nil
+}
+
+func UpsertAlert(ctx context.Context, pool *pgxpool.Pool, alertType, severity string, deviceID *uuid.UUID, message string) error {
+	_, err := pool.Exec(ctx,
+		`INSERT INTO alerts (type, severity, device_id, message)
+		 VALUES ($1, $2, $3, $4)
+		 ON CONFLICT (type, device_id) DO UPDATE
+		   SET message = EXCLUDED.message, resolved = FALSE, resolved_at = NULL`,
+		alertType, severity, deviceID, message)
+	return err
+}
+
+func ResolveAlertByTypeAndDevice(ctx context.Context, pool *pgxpool.Pool, alertType string, deviceID *uuid.UUID) error {
+	_, err := pool.Exec(ctx,
+		`UPDATE alerts SET resolved = TRUE, resolved_at = NOW()
+		 WHERE type = $1 AND device_id = $2 AND resolved = FALSE`,
+		alertType, deviceID)
+	return err
+}
+
+func ResolveAlert(ctx context.Context, pool *pgxpool.Pool, id int64) error {
+	_, err := pool.Exec(ctx,
+		`UPDATE alerts SET resolved = TRUE, resolved_at = NOW() WHERE id = $1`, id)
+	return err
+}
+
+func CountUnresolvedAlerts(ctx context.Context, pool *pgxpool.Pool) (int, error) {
+	var n int
+	err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM alerts WHERE resolved = FALSE`).Scan(&n)
+	return n, err
+}
+
 // ─── Audit Log ────────────────────────────────────────────────────────────────
 
 type AuditEntry struct {

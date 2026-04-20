@@ -9,6 +9,7 @@ import TemplatesPage from '@/pages/TemplatesPage'
 import ProfilesPage from '@/pages/ProfilesPage'
 import LeasesPage from '@/pages/LeasesPage'
 import EventsPage from '@/pages/EventsPage'
+import AlertsPage from '@/pages/AlertsPage'
 import AuditPage from '@/pages/AuditPage'
 import SettingsPage from '@/pages/SettingsPage'
 
@@ -43,6 +44,7 @@ export default function App() {
         <Route path="profiles" element={<ProfilesPage />} />
         <Route path="leases" element={<LeasesPage />} />
         <Route path="events" element={<EventsPage />} />
+        <Route path="alerts" element={<AlertsPage />} />
         <Route path="audit" element={<AuditPage />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>
