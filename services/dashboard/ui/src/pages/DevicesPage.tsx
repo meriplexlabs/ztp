@@ -238,7 +238,6 @@ function DiffModal({ device, onClose }: { device: Device; onClose: () => void })
             </div>
           ))}
         </div>
-      </div>
 
         {/* Footer — push action */}
         {!loading && !error && !clean && !pushResult && (
@@ -260,7 +259,7 @@ function DiffModal({ device, onClose }: { device: Device; onClose: () => void })
                 <span className="text-xs text-muted-foreground">
                   {removed > 0 && <span className="text-red-500 font-mono">−{removed} </span>}
                   {added   > 0 && <span className="text-green-500 font-mono">+{added} </span>}
-                  lines differ from deployed config
+                  lines differ from rendered config
                 </span>
                 <button onClick={() => setConfirmPush(true)}
                   className="flex items-center gap-1.5 text-sm px-4 py-1.5 rounded bg-primary text-primary-foreground hover:opacity-90">
