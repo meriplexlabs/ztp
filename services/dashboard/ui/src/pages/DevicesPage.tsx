@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, type Device, type DeviceProfile, type DHCPLease } from '@/lib/api'
 import { formatRelative } from '@/lib/utils'
-import { Server, RefreshCw, X, Plus, Trash2, Terminal, Download } from 'lucide-react'
+import { Server, RefreshCw, X, Plus, Trash2, Terminal, Download, GitCompare } from 'lucide-react'
+import { diffLines } from 'diff'
 
 const STATUS_COLORS: Record<Device['status'], string> = {
   unknown:      'bg-gray-100 text-gray-700',
@@ -77,6 +78,136 @@ function triggerDownload(text: string, filename: string) {
   URL.revokeObjectURL(url)
 }
 
+const CONTEXT_LINES = 3
+
+function DiffModal({ device, onClose }: { device: Device; onClose: () => void }) {
+  const [deployed, setDeployed] = useState<string | null>(null)
+  const [running,  setRunning]  = useState<string | null>(null)
+  const [error,    setError]    = useState<string | null>(null)
+  const [loading,  setLoading]  = useState(true)
+
+  useState(() => {
+    let cancelled = false
+    async function load() {
+      try {
+        const [d, r] = await Promise.all([
+          fetchTextEndpoint(`/api/v1/devices/${device.id}/config`),
+          fetchTextEndpoint(`/api/v1/devices/${device.id}/running-config`),
+        ])
+        if (!cancelled) { setDeployed(d); setRunning(r) }
+      } catch (e: unknown) {
+        if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load configs')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  })
+
+  const hunks = (() => {
+    if (!deployed || !running) return []
+    const changes = diffLines(deployed, running)
+    const result: { type: 'context' | 'added' | 'removed'; lines: string[] }[] = []
+    let contextBuf: string[] = []
+
+    function flushContext(take: number) {
+      if (contextBuf.length > 0) {
+        result.push({ type: 'context', lines: contextBuf.slice(-take) })
+        contextBuf = []
+      }
+    }
+
+    for (const change of changes) {
+      const lines = change.value.replace(/\n$/, '').split('\n')
+      if (!change.added && !change.removed) {
+        // flush trailing context from previous hunk, buffer for next
+        if (result.length > 0) {
+          result.push({ type: 'context', lines: lines.slice(0, CONTEXT_LINES) })
+        }
+        contextBuf = lines
+      } else {
+        flushContext(CONTEXT_LINES)
+        result.push({ type: change.added ? 'added' : 'removed', lines })
+      }
+    }
+    return result
+  })()
+
+  const added   = hunks.filter(h => h.type === 'added').reduce((n, h) => n + h.lines.length, 0)
+  const removed = hunks.filter(h => h.type === 'removed').reduce((n, h) => n + h.lines.length, 0)
+  const clean   = deployed && running && added === 0 && removed === 0
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-[2px]">
+      <div className="w-[80vw] max-w-5xl max-h-[85vh] flex flex-col bg-background border rounded-xl shadow-2xl overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-3 border-b shrink-0">
+          <div className="flex items-center gap-3">
+            <GitCompare className="h-4 w-4 text-muted-foreground" />
+            <span className="font-semibold text-sm">
+              {device.hostname ?? device.serial ?? device.id}
+            </span>
+            <span className="text-xs text-muted-foreground">deployed → running</span>
+            {!loading && !error && (
+              clean
+                ? <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">No drift</span>
+                : <span className="text-xs text-muted-foreground">
+                    {removed > 0 && <span className="text-red-600 font-mono">−{removed} </span>}
+                    {added   > 0 && <span className="text-green-600 font-mono">+{added}</span>}
+                  </span>
+            )}
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded hover:bg-accent">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-auto bg-[#1e1e2e] font-mono text-xs leading-5">
+          {loading && (
+            <div className="flex items-center justify-center h-40 text-muted-foreground text-sm">
+              Loading configs…
+            </div>
+          )}
+          {error && (
+            <div className="flex items-center justify-center h-40 text-destructive text-sm px-6 text-center">
+              {error}
+            </div>
+          )}
+          {clean && (
+            <div className="flex items-center justify-center h-40 text-green-400 text-sm">
+              Deployed and running configs are identical.
+            </div>
+          )}
+          {!loading && !error && !clean && hunks.map((hunk, hi) => (
+            <div key={hi}>
+              {hunk.type === 'context' && hunk.lines.map((line, li) => (
+                <div key={li} className="flex px-4 py-px text-[#6c7086] select-text">
+                  <span className="w-4 mr-4 text-[#45475a] select-none"> </span>
+                  <span className="whitespace-pre">{line}</span>
+                </div>
+              ))}
+              {hunk.type === 'removed' && hunk.lines.map((line, li) => (
+                <div key={li} className="flex px-4 py-px bg-red-950/40 select-text">
+                  <span className="w-4 mr-4 text-red-500 select-none">−</span>
+                  <span className="whitespace-pre text-red-300">{line}</span>
+                </div>
+              ))}
+              {hunk.type === 'added' && hunk.lines.map((line, li) => (
+                <div key={li} className="flex px-4 py-px bg-green-950/40 select-text">
+                  <span className="w-4 mr-4 text-green-500 select-none">+</span>
+                  <span className="whitespace-pre text-green-300">{line}</span>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function TerminalOverlay({ device, onClose }: { device: Device; onClose: () => void }) {
   const [minimized, setMinimized] = useState(false)
 
@@ -133,12 +264,14 @@ function DeviceDrawer({
   leases,
   onClose,
   onTerminal,
+  onDiff,
 }: {
   device: Device
   profiles: DeviceProfile[]
   leases: DHCPLease[]
   onClose: () => void
   onTerminal: (d: Device) => void
+  onDiff: (d: Device) => void
 }) {
   const qc = useQueryClient()
   const [hostname,    setHostname]    = useState(device.hostname ?? '')
@@ -302,6 +435,18 @@ function DeviceDrawer({
                 {downloadingRunning ? 'Pulling…' : 'Download'}
               </button>
             </div>
+            {device.profile_id && (
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Config Diff</p>
+                <button
+                  onClick={() => { onClose(); onDiff(device) }}
+                  className="text-xs text-primary hover:underline flex items-center gap-1"
+                >
+                  <GitCompare className="h-3 w-3" />
+                  View diff
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Hostname */}
@@ -422,6 +567,7 @@ function DeviceDrawer({
 export default function DevicesPage() {
   const [selected, setSelected]       = useState<Device | null>(null)
   const [terminalDevice, setTerminal] = useState<Device | null>(null)
+  const [diffDevice, setDiffDevice]   = useState<Device | null>(null)
 
   const { data: devices, isLoading, error, refetch, isFetching } = useQuery<Device[]>({
     queryKey: ['devices'],
@@ -554,11 +700,15 @@ export default function DevicesPage() {
           leases={leases}
           onClose={() => setSelected(null)}
           onTerminal={(d) => { setSelected(null); setTerminal(d) }}
+          onDiff={(d) => { setSelected(null); setDiffDevice(d) }}
         />
       )}
 
       {terminalDevice && (
         <TerminalOverlay device={terminalDevice} onClose={() => setTerminal(null)} />
+      )}
+      {diffDevice && (
+        <DiffModal device={diffDevice} onClose={() => setDiffDevice(null)} />
       )}
     </div>
   )

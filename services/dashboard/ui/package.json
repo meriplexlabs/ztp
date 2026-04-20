@@ -30,11 +30,13 @@
     "tailwindcss-animate": "^1.0.7",
     "zustand": "^5.0.1",
     "react-simple-code-editor": "^0.14.1",
-    "prismjs": "^1.29.0"
+    "prismjs": "^1.29.0",
+    "diff": "^7.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.9.0",
     "@types/prismjs": "^1.26.4",
+    "@types/diff": "^7.0.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@typescript-eslint/eslint-plugin": "^8.13.0",
