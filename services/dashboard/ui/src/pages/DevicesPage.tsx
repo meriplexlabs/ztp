@@ -694,7 +694,7 @@ function BulkActionBar({
     setOps(prev => prev ? prev.map(o => o.id === id ? { ...o, ...patch } : o) : prev)
   }
 
-  async function runBulk(label: string, fn: (d: Device) => Promise<void>) {
+  async function runBulk(_label: string, fn: (d: Device) => Promise<void>) {
     setRunning(true)
     setOps(selectedDevices.map(d => ({ id: d.id, status: 'pending' })))
     await Promise.allSettled(
