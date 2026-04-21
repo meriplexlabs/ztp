@@ -271,7 +271,14 @@ func GetProfile(ctx context.Context, pool *pgxpool.Pool, id uuid.UUID) (*models.
 func ListEvents(ctx context.Context, pool *pgxpool.Pool, limit, offset int, deviceID string) ([]models.SyslogEvent, error) {
 	var rows pgx.Rows
 	var err error
-	if deviceID != "" {
+	if deviceID == "unknown" {
+		rows, err = pool.Query(ctx,
+			`SELECT id, device_id, source_ip::text, severity, facility, hostname, app_name, message, received_at
+			 FROM syslog_events
+			 WHERE device_id IS NULL
+			 ORDER BY received_at DESC
+			 LIMIT $1 OFFSET $2`, limit, offset)
+	} else if deviceID != "" {
 		rows, err = pool.Query(ctx,
 			`SELECT e.id, e.device_id, e.source_ip::text, e.severity, e.facility, e.hostname, e.app_name, e.message, e.received_at
 			 FROM syslog_events e

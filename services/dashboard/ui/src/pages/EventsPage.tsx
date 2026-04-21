@@ -52,6 +52,7 @@ export default function EventsPage() {
                 {d.hostname ?? d.serial ?? d.mac ?? d.id.slice(0, 8)}
               </option>
             ))}
+            <option value="unknown">Unknown</option>
           </select>
           <button
             onClick={() => refetch()}
