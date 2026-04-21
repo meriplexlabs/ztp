@@ -84,10 +84,7 @@ func CommitConfig(ctx context.Context, pool *pgxpool.Pool, device *models.Device
 // CommitTemplate backs up a config template to the configured git repo.
 // Should be called in a goroutine — errors are logged, not returned.
 func CommitTemplate(ctx context.Context, pool *pgxpool.Pool, tmpl *models.ConfigTemplate) {
-	if dbpkg.GetSettingValue(ctx, pool, "git.backup_enabled") != "true" {
-		return
-	}
-	repoURL := dbpkg.GetSettingValue(ctx, pool, "git.backup_repo_url")
+	repoURL := dbpkg.GetSettingValue(ctx, pool, "git.template_repo_url")
 	if repoURL == "" {
 		return
 	}
@@ -98,8 +95,8 @@ func CommitTemplate(ctx context.Context, pool *pgxpool.Pool, tmpl *models.Config
 		return // file-backed templates live on disk, nothing to commit
 	}
 
-	branch := orDefault(dbpkg.GetSettingValue(ctx, pool, "git.backup_branch"), "main")
-	token  := dbpkg.GetSettingValue(ctx, pool, "git.backup_token")
+	branch := orDefault(dbpkg.GetSettingValue(ctx, pool, "git.template_branch"), "main")
+	token  := dbpkg.GetSettingValue(ctx, pool, "git.template_token")
 	name   := orDefault(dbpkg.GetSettingValue(ctx, pool, "git.backup_author_name"), "ZTP Server")
 	email  := orDefault(dbpkg.GetSettingValue(ctx, pool, "git.backup_author_email"), "ztp@localhost")
 
@@ -149,15 +146,12 @@ func CommitTemplate(ctx context.Context, pool *pgxpool.Pool, tmpl *models.Config
 // CommitProfile backs up a device profile as JSON to the configured git repo.
 // Should be called in a goroutine — errors are logged, not returned.
 func CommitProfile(ctx context.Context, pool *pgxpool.Pool, profile *models.DeviceProfile) {
-	if dbpkg.GetSettingValue(ctx, pool, "git.backup_enabled") != "true" {
-		return
-	}
-	repoURL := dbpkg.GetSettingValue(ctx, pool, "git.backup_repo_url")
+	repoURL := dbpkg.GetSettingValue(ctx, pool, "git.template_repo_url")
 	if repoURL == "" {
 		return
 	}
-	branch := orDefault(dbpkg.GetSettingValue(ctx, pool, "git.backup_branch"), "main")
-	token  := dbpkg.GetSettingValue(ctx, pool, "git.backup_token")
+	branch := orDefault(dbpkg.GetSettingValue(ctx, pool, "git.template_branch"), "main")
+	token  := dbpkg.GetSettingValue(ctx, pool, "git.template_token")
 	name   := orDefault(dbpkg.GetSettingValue(ctx, pool, "git.backup_author_name"), "ZTP Server")
 	email  := orDefault(dbpkg.GetSettingValue(ctx, pool, "git.backup_author_email"), "ztp@localhost")
 
