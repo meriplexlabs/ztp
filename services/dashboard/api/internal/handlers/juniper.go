@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"fmt"
-	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -77,18 +76,17 @@ func (h *JuniperHandler) ZTPConfig(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Update last_seen, management_ip, and backfill MAC if needed
-	remoteIP, _, _ := net.SplitHostPort(r.RemoteAddr)
+	// Update last_seen; backfill MAC if we have it and device doesn't
 	now := time.Now()
 	if device.MAC == nil && mac != "" {
 		device.MAC = &mac
 		_, _ = h.pool.Exec(ctx,
-			`UPDATE devices SET last_seen = $1, mac = $2, management_ip = COALESCE(management_ip, $3::inet) WHERE id = $4`,
-			now, mac, remoteIP, device.ID)
+			`UPDATE devices SET last_seen = $1, mac = $2 WHERE id = $3`,
+			now, mac, device.ID)
 	} else {
 		_, _ = h.pool.Exec(ctx,
-			`UPDATE devices SET last_seen = $1, management_ip = COALESCE(management_ip, $2::inet) WHERE id = $3`,
-			now, remoteIP, device.ID)
+			`UPDATE devices SET last_seen = $1 WHERE id = $2`,
+			now, device.ID)
 	}
 
 	// No profile → discovered but not provisioned yet; signal retry

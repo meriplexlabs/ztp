@@ -3,7 +3,6 @@ package handlers
 import (
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"regexp"
 	"strings"
@@ -111,9 +110,8 @@ func (h *PnPHandler) handleHelloRegister(w http.ResponseWriter, r *http.Request,
 		}
 	}
 
-	remoteIP, _, _ := net.SplitHostPort(r.RemoteAddr)
 	now := time.Now()
-	_, _ = h.pool.Exec(ctx, `UPDATE devices SET last_seen = $1, management_ip = COALESCE(management_ip, $2::inet) WHERE id = $3`, now, remoteIP, device.ID)
+	_, _ = h.pool.Exec(ctx, `UPDATE devices SET last_seen = $1 WHERE id = $2`, now, device.ID)
 
 	w.Header().Set("Content-Type", "text/xml; charset=utf-8")
 	fmt.Fprint(w, pnpByeResponse(udi, correlator))
@@ -179,9 +177,8 @@ func (h *PnPHandler) handleWorkRequestForDevice(w http.ResponseWriter, r *http.R
 		}
 	}
 
-	remoteIP, _, _ := net.SplitHostPort(r.RemoteAddr)
 	now := time.Now()
-	_, _ = h.pool.Exec(ctx, `UPDATE devices SET last_seen = $1, management_ip = COALESCE(management_ip, $2::inet) WHERE id = $3`, now, remoteIP, device.ID)
+	_, _ = h.pool.Exec(ctx, `UPDATE devices SET last_seen = $1 WHERE id = $2`, now, device.ID)
 
 	w.Header().Set("Content-Type", "text/xml; charset=utf-8")
 

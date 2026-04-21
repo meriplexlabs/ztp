@@ -132,17 +132,28 @@ func isProvisioningComplete(msg string) bool {
 
 // ─── DB ───────────────────────────────────────────────────────────────────────
 
-func insertEvent(ctx context.Context, pool *pgxpool.Pool, msg SyslogMessage) {
+func resolveDeviceID(ctx context.Context, pool *pgxpool.Pool, sourceIP, hostname string) *string {
+	var id string
+	err := pool.QueryRow(ctx,
+		`SELECT id FROM devices
+		 WHERE (hostname IS NOT NULL AND lower(hostname) = lower($2) AND $2 != '')
+		    OR management_ip = $1::inet
+		    OR id = (SELECT device_id FROM dhcp_reservations WHERE ip_address = $1::inet LIMIT 1)
+		 LIMIT 1`,
+		sourceIP, hostname,
+	).Scan(&id)
+	if err != nil {
+		return nil
+	}
+	return &id
+}
+
+func insertEvent(ctx context.Context, pool *pgxpool.Pool, msg SyslogMessage, deviceID *string) {
 	_, err := pool.Exec(ctx,
 		`INSERT INTO syslog_events
 		 (source_ip, device_id, severity, facility, hostname, app_name, proc_id, msg_id, message, raw)
-		 VALUES ($1,
-		   (SELECT id FROM devices WHERE management_ip = $1::inet
-		    UNION
-		    SELECT device_id FROM dhcp_reservations WHERE ip_address = $1::inet
-		    LIMIT 1),
-		   $2, $3, $4, $5, $6, $7, $8, $9)`,
-		msg.SourceIP, msg.Severity, msg.Facility,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+		msg.SourceIP, deviceID, msg.Severity, msg.Facility,
 		nullStr(msg.Hostname), nullStr(msg.AppName), nullStr(msg.ProcID),
 		nullStr(msg.MsgID), msg.Message, msg.Raw,
 	)
@@ -151,7 +162,11 @@ func insertEvent(ctx context.Context, pool *pgxpool.Pool, msg SyslogMessage) {
 	}
 }
 
-func updateDeviceLastSeen(ctx context.Context, pool *pgxpool.Pool, sourceIP string) {
+func updateDeviceLastSeen(ctx context.Context, pool *pgxpool.Pool, deviceID *string, sourceIP string) {
+	if deviceID != nil {
+		pool.Exec(ctx, `UPDATE devices SET last_seen = NOW() WHERE id = $1`, *deviceID)
+		return
+	}
 	pool.Exec(ctx,
 		`UPDATE devices SET last_seen = NOW()
 		 WHERE management_ip = $1::inet
@@ -201,8 +216,9 @@ func handleMessage(ctx context.Context, pool *pgxpool.Pool, data []byte, sourceI
 		Str("message", msg.Message).
 		Msg("syslog")
 
-	insertEvent(ctx, pool, msg)
-	updateDeviceLastSeen(ctx, pool, sourceIP)
+	deviceID := resolveDeviceID(ctx, pool, sourceIP, msg.Hostname)
+	insertEvent(ctx, pool, msg, deviceID)
+	updateDeviceLastSeen(ctx, pool, deviceID, sourceIP)
 
 	if isProvisioningComplete(msg.Message) {
 		updateDeviceProvisioned(ctx, pool, sourceIP)
