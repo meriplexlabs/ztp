@@ -3,6 +3,7 @@ package gitops
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"os"
@@ -73,6 +74,71 @@ func CommitConfig(ctx context.Context, pool *pgxpool.Pool, device *models.Device
 	msg := fmt.Sprintf("backup: %s config %s", ident, time.Now().UTC().Format(time.RFC3339))
 	if err := runGit(dir, "commit", "-m", msg); err != nil {
 		// "nothing to commit" — config unchanged, that's fine
+		return
+	}
+	if err := runGit(dir, "push", "origin", branch); err != nil {
+		log.Error().Err(err).Msg("git backup: push failed")
+	}
+}
+
+// CommitProfile backs up a device profile as JSON to the configured git repo.
+// Should be called in a goroutine — errors are logged, not returned.
+func CommitProfile(ctx context.Context, pool *pgxpool.Pool, profile *models.DeviceProfile) {
+	if dbpkg.GetSettingValue(ctx, pool, "git.backup_enabled") != "true" {
+		return
+	}
+	repoURL := dbpkg.GetSettingValue(ctx, pool, "git.backup_repo_url")
+	if repoURL == "" {
+		return
+	}
+	branch := orDefault(dbpkg.GetSettingValue(ctx, pool, "git.backup_branch"), "main")
+	token  := dbpkg.GetSettingValue(ctx, pool, "git.backup_token")
+	name   := orDefault(dbpkg.GetSettingValue(ctx, pool, "git.backup_author_name"), "ZTP Server")
+	email  := orDefault(dbpkg.GetSettingValue(ctx, pool, "git.backup_author_email"), "ztp@localhost")
+
+	authURL := injectToken(repoURL, token)
+	if authURL == "" {
+		log.Warn().Str("url", repoURL).Msg("git backup: could not parse repo URL")
+		return
+	}
+
+	dir, err := os.MkdirTemp("", "ztp-git-profile-*")
+	if err != nil {
+		log.Error().Err(err).Msg("git backup: mktemp failed")
+		return
+	}
+	defer os.RemoveAll(dir)
+
+	if err := runGit(dir, "clone", "--depth=1", "--single-branch", "--branch", branch, authURL, "."); err != nil {
+		runGit(dir, "init")
+		runGit(dir, "remote", "add", "origin", authURL)
+		runGit(dir, "checkout", "-b", branch)
+	}
+
+	profDir := filepath.Join(dir, "profiles")
+	if err := os.MkdirAll(profDir, 0o755); err != nil {
+		log.Error().Err(err).Msg("git backup: mkdir failed")
+		return
+	}
+
+	content, err := json.Marshal(profile)
+	if err != nil {
+		log.Error().Err(err).Msg("git backup: marshal profile failed")
+		return
+	}
+
+	filename := sanitize(profile.Name) + ".json"
+	if err := os.WriteFile(filepath.Join(profDir, filename), content, 0o644); err != nil {
+		log.Error().Err(err).Msg("git backup: write failed")
+		return
+	}
+
+	runGit(dir, "config", "user.name", name)
+	runGit(dir, "config", "user.email", email)
+	runGit(dir, "add", "-A")
+
+	msg := fmt.Sprintf("backup: profile %s %s", profile.Name, time.Now().UTC().Format(time.RFC3339))
+	if err := runGit(dir, "commit", "-m", msg); err != nil {
 		return
 	}
 	if err := runGit(dir, "push", "origin", branch); err != nil {

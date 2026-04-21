@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -8,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	dbpkg "github.com/ztp/api/internal/db"
+	"github.com/ztp/api/internal/gitops"
 	"github.com/ztp/api/internal/models"
 )
 
@@ -65,6 +67,7 @@ func (h *ProfileHandler) Create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to create profile: "+err.Error())
 		return
 	}
+	go gitops.CommitProfile(context.Background(), h.pool, &p)
 	writeJSON(w, http.StatusCreated, p)
 }
 
@@ -88,6 +91,7 @@ func (h *ProfileHandler) Update(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to update profile: "+err.Error())
 		return
 	}
+	go gitops.CommitProfile(context.Background(), h.pool, &p)
 	writeJSON(w, http.StatusOK, p)
 }
 
