@@ -135,8 +135,13 @@ func isProvisioningComplete(msg string) bool {
 func insertEvent(ctx context.Context, pool *pgxpool.Pool, msg SyslogMessage) {
 	_, err := pool.Exec(ctx,
 		`INSERT INTO syslog_events
-		 (source_ip, severity, facility, hostname, app_name, proc_id, msg_id, message, raw)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+		 (source_ip, device_id, severity, facility, hostname, app_name, proc_id, msg_id, message, raw)
+		 VALUES ($1,
+		   (SELECT id FROM devices WHERE management_ip = $1::inet
+		    UNION
+		    SELECT device_id FROM dhcp_reservations WHERE ip_address = $1::inet
+		    LIMIT 1),
+		   $2, $3, $4, $5, $6, $7, $8, $9)`,
 		msg.SourceIP, msg.Severity, msg.Facility,
 		nullStr(msg.Hostname), nullStr(msg.AppName), nullStr(msg.ProcID),
 		nullStr(msg.MsgID), msg.Message, msg.Raw,
@@ -149,12 +154,8 @@ func insertEvent(ctx context.Context, pool *pgxpool.Pool, msg SyslogMessage) {
 func updateDeviceLastSeen(ctx context.Context, pool *pgxpool.Pool, sourceIP string) {
 	pool.Exec(ctx,
 		`UPDATE devices SET last_seen = NOW()
-		 WHERE id = (
-		     SELECT d.id FROM devices d
-		     JOIN dhcp_reservations r ON r.device_id = d.id
-		     WHERE r.ip_address = $1::inet
-		     LIMIT 1
-		 )`,
+		 WHERE management_ip = $1::inet
+		    OR id = (SELECT device_id FROM dhcp_reservations WHERE ip_address = $1::inet LIMIT 1)`,
 		sourceIP,
 	)
 }
