@@ -1,7 +1,7 @@
 import { useState, lazy, Suspense } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, type ConfigTemplate } from '@/lib/api'
-import { FileCode2, Plus, Trash2, X } from 'lucide-react'
+import { FileCode2, GitBranch, Plus, Trash2, X } from 'lucide-react'
 
 const JinjaEditor = lazy(() => import('@/components/JinjaEditor'))
 
@@ -138,10 +138,21 @@ function TemplateForm({ initial, onClose }: { initial?: ConfigTemplate; onClose:
 
 export default function TemplatesPage() {
   const [templateForm, setTemplateForm] = useState<ConfigTemplate | null | 'new'>(null)
+  const [syncMsg, setSyncMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const qc = useQueryClient()
 
   const { data: templates = [], isLoading } = useQuery<ConfigTemplate[]>({
     queryKey: ['templates'],
     queryFn:  () => api.get<ConfigTemplate[]>('/api/v1/templates'),
+  })
+
+  const syncMutation = useMutation({
+    mutationFn: () => api.post<{ synced: number; message: string }>('/api/v1/git/sync-templates', {}),
+    onSuccess: (res) => {
+      setSyncMsg({ ok: true, text: res.message })
+      qc.invalidateQueries({ queryKey: ['templates'] })
+    },
+    onError: (e: Error) => setSyncMsg({ ok: false, text: e.message }),
   })
 
   const grouped = templates.reduce((acc, t) => {
@@ -157,10 +168,25 @@ export default function TemplatesPage() {
           <FileCode2 className="h-5 w-5 text-muted-foreground" />
           <h1 className="text-xl font-semibold">Config Templates</h1>
         </div>
-        <button onClick={() => setTemplateForm('new')}
-          className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded bg-primary text-primary-foreground hover:opacity-90">
-          <Plus className="h-4 w-4" /> New Template
-        </button>
+        <div className="flex items-center gap-2">
+          {syncMsg && (
+            <span className={`text-xs ${syncMsg.ok ? 'text-green-600' : 'text-destructive'}`}>
+              {syncMsg.text}
+            </span>
+          )}
+          <button
+            onClick={() => { setSyncMsg(null); syncMutation.mutate() }}
+            disabled={syncMutation.isPending}
+            title="Sync templates from configured git repository"
+            className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded border hover:bg-accent disabled:opacity-50">
+            <GitBranch className="h-4 w-4" />
+            {syncMutation.isPending ? 'Syncing…' : 'Sync from Git'}
+          </button>
+          <button onClick={() => setTemplateForm('new')}
+            className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded bg-primary text-primary-foreground hover:opacity-90">
+            <Plus className="h-4 w-4" /> New Template
+          </button>
+        </div>
       </div>
 
       {isLoading && <div className="text-muted-foreground text-sm">Loading templates…</div>}

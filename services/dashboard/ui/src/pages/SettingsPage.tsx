@@ -23,6 +23,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   ztp:     'ZTP',
   dhcp:    'DHCP / Kea',
   snmp:    'SNMP Defaults',
+  git:     'Git Integration',
   general: 'General',
 }
 

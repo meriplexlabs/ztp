@@ -79,6 +79,7 @@ func main() {
 	inventoryH := handlers.NewInventoryHandler(pool)
 	auditH     := handlers.NewAuditHandler(pool)
 	alertH     := handlers.NewAlertHandler(pool)
+	gitH       := handlers.NewGitHandler(pool)
 
 	// Router
 	r := chi.NewRouter()
@@ -182,6 +183,9 @@ func main() {
 
 		// Audit log
 		r.Get("/api/v1/audit", auditH.List)
+
+		// Git operations
+		r.Post("/api/v1/git/sync-templates", gitH.SyncTemplates)
 
 		// Alerts
 		r.Get("/api/v1/alerts",               alertH.List)

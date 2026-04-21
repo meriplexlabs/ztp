@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -16,6 +17,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	dbpkg "github.com/ztp/api/internal/db"
+	"github.com/ztp/api/internal/gitops"
 	"github.com/ztp/api/internal/models"
 )
 
@@ -251,6 +253,9 @@ func (h *DeviceHandler) RunningConfig(w http.ResponseWriter, r *http.Request) {
 	normalized := strings.ReplaceAll(string(out), "\r\n", "\n")
 	normalized  = strings.ReplaceAll(normalized, "\r", "\n")
 
+	// Backup config to git in the background (non-blocking)
+	go gitops.CommitConfig(context.Background(), h.pool, device, normalized)
+
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprint(w, normalized)
@@ -368,6 +373,9 @@ func (h *DeviceHandler) PushConfig(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
+
+	// Backup pushed config to git in the background (non-blocking)
+	go gitops.CommitConfig(context.Background(), h.pool, device, config)
 
 	auditUser(r, h.pool, claimsFromCtx(r), "config_pushed", "device", &id, map[string]any{"vendor": vendor})
 	writeJSON(w, http.StatusOK, map[string]any{

@@ -335,6 +335,16 @@ func ClearSetting(ctx context.Context, pool *pgxpool.Pool, key string) error {
 	return err
 }
 
+// GetSettingValue returns the stored value for key, or "" if unset or not found.
+func GetSettingValue(ctx context.Context, pool *pgxpool.Pool, key string) string {
+	var val *string
+	pool.QueryRow(ctx, `SELECT value FROM settings WHERE key = $1`, key).Scan(&val)
+	if val != nil {
+		return *val
+	}
+	return ""
+}
+
 // ─── Password Change ──────────────────────────────────────────────────────────
 
 func ChangePassword(ctx context.Context, pool *pgxpool.Pool, userID uuid.UUID, newHash string) error {
@@ -463,6 +473,18 @@ func UpdateTemplate(ctx context.Context, pool *pgxpool.Pool, t *models.ConfigTem
 
 func DeleteTemplate(ctx context.Context, pool *pgxpool.Pool, id uuid.UUID) error {
 	_, err := pool.Exec(ctx, `DELETE FROM config_templates WHERE id = $1`, id)
+	return err
+}
+
+// UpsertTemplate inserts or updates a template matched by (vendor, os_type, name).
+func UpsertTemplate(ctx context.Context, pool *pgxpool.Pool, vendor, osType, name, content string) error {
+	vars, _ := json.Marshal([]models.TemplateVar{})
+	_, err := pool.Exec(ctx,
+		`INSERT INTO config_templates (name, vendor, os_type, content, variables)
+		 VALUES ($1, $2, $3, $4, $5)
+		 ON CONFLICT (vendor, os_type, name) DO UPDATE
+		   SET content = EXCLUDED.content, updated_at = NOW()`,
+		name, vendor, osType, content, vars)
 	return err
 }
 

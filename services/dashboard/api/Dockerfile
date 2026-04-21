@@ -17,7 +17,9 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 # ─── Runtime stage (alpine, non-root) ────────────────────────────────────────
 FROM alpine:3.21
 
-RUN adduser -D -u 1000 ztp
+RUN apk add --no-cache git ca-certificates && \
+    adduser -D -u 1000 ztp
+
 USER ztp
 
 COPY --from=builder /build/ztp-api /ztp-api
