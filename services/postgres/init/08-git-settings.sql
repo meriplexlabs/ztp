@@ -1,6 +1,11 @@
 -- Git integration settings
-ALTER TABLE config_templates
-  ADD CONSTRAINT IF NOT EXISTS uq_template_vendor_ostype_name UNIQUE (vendor, os_type, name);
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'uq_template_vendor_ostype_name'
+  ) THEN
+    ALTER TABLE config_templates ADD CONSTRAINT uq_template_vendor_ostype_name UNIQUE (vendor, os_type, name);
+  END IF;
+END $$;
 
 INSERT INTO settings (key, label, description, category) VALUES
   ('git.backup_enabled',      'Config Backup Enabled',    'Set to "true" to enable automatic git backup of running configs', 'git'),
