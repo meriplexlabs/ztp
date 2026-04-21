@@ -304,28 +304,35 @@ function ProfileForm({
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="bg-muted/50 border-b">
+                        <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground w-20">ID</th>
                         <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">Name</th>
-                        <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">ID</th>
+                        <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">Description</th>
                         <th className="w-8" />
                       </tr>
                     </thead>
                     <tbody>
-                      {vlans.map(([name, id], i) => (
+                      {vlans.map((v: VlanRow, i: number) => (
                         <tr key={i} className="border-b last:border-0">
                           <td className="px-3 py-1.5">
-                            <input value={name}
-                              onChange={e => setVlans(vs => vs.map((v, j) => j === i ? [e.target.value, v[1]] : v))}
+                            <input type="number" value={v.id}
+                              onChange={e => setVlans((vs: VlanRow[]) => vs.map((r: VlanRow, j: number) => j === i ? { ...r, id: Number(e.target.value) } : r))}
+                              placeholder="10"
+                              className="w-16 text-xs font-mono border rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-primary/50" />
+                          </td>
+                          <td className="px-3 py-1.5">
+                            <input value={v.name}
+                              onChange={e => setVlans((vs: VlanRow[]) => vs.map((r: VlanRow, j: number) => j === i ? { ...r, name: e.target.value } : r))}
                               placeholder="MGMT"
                               className="w-full text-xs font-mono border rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-primary/50" />
                           </td>
                           <td className="px-3 py-1.5">
-                            <input value={id} type="number"
-                              onChange={e => setVlans(vs => vs.map((v, j) => j === i ? [v[0], e.target.value] : v))}
-                              placeholder="10"
-                              className="w-24 text-xs font-mono border rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-primary/50" />
+                            <input value={v.description}
+                              onChange={e => setVlans((vs: VlanRow[]) => vs.map((r: VlanRow, j: number) => j === i ? { ...r, description: e.target.value } : r))}
+                              placeholder="Optional"
+                              className="w-full text-xs border rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-primary/50" />
                           </td>
                           <td className="px-2">
-                            <button onClick={() => setVlans(vs => vs.filter((_, j) => j !== i))}
+                            <button onClick={() => setVlans((vs: VlanRow[]) => vs.filter((_: VlanRow, j: number) => j !== i))}
                               className="text-muted-foreground hover:text-destructive">
                               <X className="h-3.5 w-3.5" />
                             </button>
@@ -338,7 +345,7 @@ function ProfileForm({
                     <p className="text-xs text-muted-foreground px-3 py-3">No VLANs defined.</p>
                   )}
                 </div>
-                <button onClick={() => setVlans(vs => [...vs, ['', '']])}
+                <button onClick={() => setVlans(vs => [...vs, { id: 0, name: '', description: '' }])}
                   className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
                   <Plus className="h-3 w-3" /> Add VLAN
                 </button>
