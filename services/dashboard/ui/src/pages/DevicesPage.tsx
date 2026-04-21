@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { api, type Device, type DeviceProfile, type DHCPLease } from '@/lib/api'
 import { formatRelative } from '@/lib/utils'
-import { Server, RefreshCw, X, Plus, Trash2, Terminal, Download, GitCompare, Cpu, CheckCircle, XCircle } from 'lucide-react'
+import { Server, RefreshCw, X, Plus, Trash2, Terminal, Download, GitCompare, Cpu, CheckCircle, XCircle, Wand2 } from 'lucide-react'
 import { diffLines } from 'diff'
 
 const STATUS_COLORS: Record<Device['status'], string> = {
@@ -485,6 +485,26 @@ function DeviceModal({
   function setVarKey(i: number, k: string) { setVars(v => v.map((p, j) => j === i ? [k, p[1]] : p)) }
   function setVarVal(i: number, val: string) { setVars(v => v.map((p, j) => j === i ? [p[0], val] : p)) }
 
+  const [discovering, setDiscovering] = useState(false)
+  async function discoverVars() {
+    const templateId = profile?.template_id
+    if (!templateId) return
+    setDiscovering(true)
+    try {
+      const res = await api.get<{ variables: string[] }>(`/api/v1/templates/${templateId}/variables`)
+      const existing = new Set(vars.map(([k]) => k).filter(k => k.trim() !== ''))
+      const profileVarMap: Record<string, string> = Object.fromEntries(
+        Object.entries(profile?.variables ?? {}).map(([k, v]) => [k, String(v)])
+      )
+      const newVars = res.variables
+        .filter(k => !existing.has(k))
+        .map(k => [k, profileVarMap[k] ?? ''] as [string, string])
+      setVars(v => [...v, ...newVars])
+    } finally {
+      setDiscovering(false)
+    }
+  }
+
   const TABS: { id: DeviceModalTab; label: string }[] = [
     { id: 'overview',  label: 'Overview'  },
     { id: 'variables', label: 'Variables' },
@@ -613,10 +633,18 @@ function DeviceModal({
               <div>
                 <div className="flex items-center justify-between mb-3">
                   <p className="text-xs text-muted-foreground">Device-level variables override profile variables.</p>
-                  <button onClick={addVar}
-                    className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded border hover:bg-accent">
-                    <Plus className="h-3 w-3" /> Add variable
-                  </button>
+                  <div className="flex gap-2">
+                    {profile?.template_id && (
+                      <button onClick={discoverVars} disabled={discovering}
+                        className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded border hover:bg-accent disabled:opacity-50">
+                        <Wand2 className="h-3 w-3" /> {discovering ? 'Discovering…' : 'Discover variables'}
+                      </button>
+                    )}
+                    <button onClick={addVar}
+                      className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded border hover:bg-accent">
+                      <Plus className="h-3 w-3" /> Add variable
+                    </button>
+                  </div>
                 </div>
                 {vars.length === 0 && (
                   <p className="text-sm text-muted-foreground text-center py-8">No variables set.</p>
