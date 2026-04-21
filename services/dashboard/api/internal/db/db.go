@@ -278,7 +278,11 @@ func ListEvents(ctx context.Context, pool *pgxpool.Pool, limit, offset int, devi
 			 WHERE e.device_id = $3::uuid
 			    OR e.source_ip = (SELECT management_ip FROM devices WHERE id = $3::uuid)
 			    OR e.source_ip IN (SELECT ip_address FROM dhcp_reservations WHERE device_id = $3::uuid)
-			    OR lower(e.hostname) = (SELECT lower(hostname) FROM devices WHERE id = $3::uuid AND hostname IS NOT NULL)
+			    OR lower(e.hostname) IN (SELECT lower(h) FROM (
+			         SELECT hostname AS h FROM devices WHERE id = $3::uuid AND hostname IS NOT NULL
+			         UNION ALL
+			         SELECT serial FROM devices WHERE id = $3::uuid AND serial IS NOT NULL
+			       ) t)
 			 ORDER BY e.received_at DESC
 			 LIMIT $1 OFFSET $2`, limit, offset, deviceID)
 	} else {

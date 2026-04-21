@@ -136,7 +136,7 @@ func resolveDeviceID(ctx context.Context, pool *pgxpool.Pool, sourceIP, hostname
 	var id string
 	err := pool.QueryRow(ctx,
 		`SELECT id FROM devices
-		 WHERE (hostname IS NOT NULL AND lower(hostname) = lower($2) AND $2 != '')
+		 WHERE (($2 != '') AND (lower(hostname) = lower($2) OR lower(serial) = lower($2)))
 		    OR management_ip = $1::inet
 		    OR id = (SELECT device_id FROM dhcp_reservations WHERE ip_address = $1::inet LIMIT 1)
 		 LIMIT 1`,
