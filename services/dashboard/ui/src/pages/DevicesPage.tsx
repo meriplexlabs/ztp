@@ -327,7 +327,7 @@ function TerminalOverlay({ device, onClose }: { device: Device; onClose: () => v
 type DeviceModalTab = 'overview' | 'variables' | 'vlans' | 'ports' | 'config'
 
 interface VlanRow { id: number; name: string; description: string }
-interface PortRow { port: string; mode: 'access' | 'trunk'; vlan: number; description: string }
+interface PortRow { port: string; native_vlan: number; allowed_vlans: string; description: string }
 
 interface VlanEntry extends VlanRow { fromProfile: boolean; overridden: boolean }
 interface PortEntry extends PortRow { fromProfile: boolean; overridden: boolean }
@@ -341,8 +341,10 @@ function toVlans(v: unknown): VlanRow[] {
 function toPorts(v: unknown): PortRow[] {
   if (!Array.isArray(v)) return []
   return v.map((r: Record<string, unknown>) => ({
-    port: String(r.port ?? ''), mode: (r.mode === 'trunk' ? 'trunk' : 'access') as 'access' | 'trunk',
-    vlan: Number(r.vlan ?? 1), description: String(r.description ?? ''),
+    port:          String(r.port ?? ''),
+    native_vlan:   Number(r.native_vlan ?? 1),
+    allowed_vlans: String(r.allowed_vlans ?? ''),
+    description:   String(r.description ?? ''),
   }))
 }
 
@@ -432,7 +434,10 @@ function DeviceModal({
     const deviceVlans = vlans.filter(v => !v.fromProfile || v.overridden)
       .map(({ id, name, description }) => ({ id, name, description }))
     const devicePorts = ports.filter(p => !p.fromProfile || p.overridden)
-      .map(({ port, mode, vlan, description }) => ({ port, mode, vlan, description }))
+      .map(({ port, native_vlan, allowed_vlans, description }) => ({
+        port, native_vlan, description,
+        ...(allowed_vlans.trim() ? { allowed_vlans: allowed_vlans.trim() } : {}),
+      }))
     if (deviceVlans.length > 0) variables.vlans = deviceVlans
     if (devicePorts.length > 0) variables.ports = devicePorts
     save.mutate({ ...device, hostname: hostname || undefined, description: description || undefined,
@@ -719,7 +724,7 @@ function DeviceModal({
                     Profile ports shown greyed-out. Check Override to edit in-place.
                   </p>
                   <button
-                    onClick={() => setPorts(p => [...p, { port: '', mode: 'access', vlan: 1, description: '', fromProfile: false, overridden: false }])}
+                    onClick={() => setPorts(p => [...p, { port: '', native_vlan: 1, allowed_vlans: '', description: '', fromProfile: false, overridden: false }])}
                     className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded border hover:bg-accent">
                     <Plus className="h-3 w-3" /> Add Port
                   </button>
@@ -729,8 +734,8 @@ function DeviceModal({
                     <tr className="text-xs text-muted-foreground border-b">
                       <th className="text-left pb-2 w-8">OVR</th>
                       <th className="text-left pb-2">Port</th>
-                      <th className="text-left pb-2 w-28">Mode</th>
-                      <th className="text-left pb-2 w-20">VLAN</th>
+                      <th className="text-left pb-2 w-24">Native VLAN</th>
+                      <th className="text-left pb-2">Allowed VLANs <span className="font-normal opacity-60">(optional)</span></th>
                       <th className="text-left pb-2">Description</th>
                       <th className="w-8" />
                     </tr>
@@ -763,17 +768,14 @@ function DeviceModal({
                               className="w-full text-sm border rounded px-2 py-1 font-mono disabled:bg-transparent disabled:border-transparent focus:outline-none focus:ring-1 focus:ring-primary/50" />
                           </td>
                           <td className="py-1.5 pr-2">
-                            <select value={p.mode} disabled={disabled}
-                              onChange={e => setPorts(rows => rows.map((r, j) => j === i ? { ...r, mode: e.target.value as 'access' | 'trunk' } : r))}
-                              className="w-full text-sm border rounded px-2 py-1 bg-background disabled:bg-transparent disabled:border-transparent focus:outline-none focus:ring-1 focus:ring-primary/50">
-                              <option value="access">Access</option>
-                              <option value="trunk">Trunk</option>
-                            </select>
+                            <input type="number" value={p.native_vlan} disabled={disabled}
+                              onChange={e => setPorts(rows => rows.map((r, j) => j === i ? { ...r, native_vlan: Number(e.target.value) } : r))}
+                              className="w-20 text-sm border rounded px-2 py-1 font-mono disabled:bg-transparent disabled:border-transparent focus:outline-none focus:ring-1 focus:ring-primary/50" />
                           </td>
                           <td className="py-1.5 pr-2">
-                            <input type="number" value={p.vlan} disabled={disabled}
-                              onChange={e => setPorts(rows => rows.map((r, j) => j === i ? { ...r, vlan: Number(e.target.value) } : r))}
-                              className="w-16 text-sm border rounded px-2 py-1 font-mono disabled:bg-transparent disabled:border-transparent focus:outline-none focus:ring-1 focus:ring-primary/50" />
+                            <input type="text" value={p.allowed_vlans} disabled={disabled} placeholder="10,20,30 or 10-50"
+                              onChange={e => setPorts(rows => rows.map((r, j) => j === i ? { ...r, allowed_vlans: e.target.value } : r))}
+                              className="w-full text-sm border rounded px-2 py-1 font-mono disabled:bg-transparent disabled:border-transparent focus:outline-none focus:ring-1 focus:ring-primary/50" />
                           </td>
                           <td className="py-1.5 pr-2">
                             <input type="text" value={p.description} disabled={disabled} placeholder="Optional"

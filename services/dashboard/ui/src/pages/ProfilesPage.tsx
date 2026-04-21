@@ -11,16 +11,26 @@ const VENDOR_COLORS: Record<string, string> = {
   fortinet: 'bg-red-100 text-red-700',
 }
 
-type PortMode = 'access' | 'trunk' | 'uplink' | 'disabled'
-interface PortEntry { port: number; description: string; mode: PortMode; vlan: string }
+interface VlanRow { id: number; name: string; description: string }
+interface PortRow { port: string; native_vlan: number; allowed_vlans: string; description: string }
 
 const PORT_PRESETS = [8, 12, 24, 48]
-const MODE_OPTS: { value: PortMode; label: string }[] = [
-  { value: 'access',   label: 'Access'   },
-  { value: 'trunk',    label: 'Trunk'    },
-  { value: 'uplink',   label: 'Uplink'   },
-  { value: 'disabled', label: 'Disabled' },
-]
+
+function initProfileVlans(v: unknown): VlanRow[] {
+  if (Array.isArray(v)) return v.map((r: Record<string, unknown>) => ({
+    id: Number(r.id ?? 0), name: String(r.name ?? ''), description: String(r.description ?? ''),
+  }))
+  return []
+}
+function initProfilePorts(v: unknown): PortRow[] {
+  if (Array.isArray(v)) return v.map((r: Record<string, unknown>) => ({
+    port:          String(r.port ?? ''),
+    native_vlan:   Number(r.native_vlan ?? 1),
+    allowed_vlans: String(r.allowed_vlans ?? ''),
+    description:   String(r.description ?? ''),
+  }))
+  return []
+}
 
 // ── Customer Form ──────────────────────────────────────────────────────────────
 
@@ -114,25 +124,17 @@ function ProfileForm({
   const [error,           setError]           = useState<string | null>(null)
   const [discovering,     setDiscovering]     = useState(false)
 
-  // VLANs — extracted from variables.vlans on load
-  const [vlans, setVlans] = useState<[string, string][]>(() => {
-    const v = initial?.variables?.vlans
-    if (v && typeof v === 'object' && !Array.isArray(v))
-      return Object.entries(v as Record<string, unknown>).map(([k, id]) => [k, String(id)])
-    return []
-  })
+  // VLANs
+  const [vlans, setVlans] = useState<VlanRow[]>(() => initProfileVlans(initial?.variables?.vlans))
 
-  // Port map — extracted from variables.port_map on load
-  const [portMap, setPortMap] = useState<PortEntry[]>(() => {
-    const pm = initial?.variables?.port_map
-    return Array.isArray(pm) ? (pm as PortEntry[]) : []
-  })
+  // Ports
+  const [portMap, setPortMap] = useState<PortRow[]>(() => initProfilePorts(initial?.variables?.ports))
   const [portCount, setPortCount] = useState(24)
 
-  // Scalar variables (everything except vlans + port_map)
+  // Scalar variables (everything except vlans + ports)
   const [vars, setVars] = useState<[string, string][]>(
     Object.entries(initial?.variables ?? {})
-      .filter(([k]) => k !== 'vlans' && k !== 'port_map')
+      .filter(([k]) => k !== 'vlans' && k !== 'ports')
       .map(([k, v]) => [k, String(v)])
   )
 
@@ -140,15 +142,13 @@ function ProfileForm({
 
   const save = useMutation({
     mutationFn: () => {
-      const vlanObj = vlans.length > 0
-        ? Object.fromEntries(
-            vlans.filter(([n]) => n.trim()).map(([n, id]) => [n, isNaN(Number(id)) ? id : Number(id)])
-          )
-        : undefined
       const variables: Record<string, unknown> = {
         ...Object.fromEntries(vars.filter(([k]) => k.trim())),
-        ...(vlanObj ? { vlans: vlanObj } : {}),
-        ...(portMap.length > 0 ? { port_map: portMap } : {}),
+        ...(vlans.length > 0 ? { vlans: vlans.map((v: VlanRow) => ({ id: v.id, name: v.name, description: v.description })) } : {}),
+        ...(portMap.length > 0 ? { ports: portMap.map((p: PortRow) => ({
+          port: p.port, native_vlan: p.native_vlan, description: p.description,
+          ...(p.allowed_vlans.trim() ? { allowed_vlans: p.allowed_vlans.trim() } : {}),
+        })) } : {}),
       }
       const body = {
         name,
@@ -183,7 +183,7 @@ function ProfileForm({
       setVars(current => {
         const existing = new Set(current.map(([k]) => k))
         const newVars = result.variables
-          .filter(v => !existing.has(v) && v !== 'vlans' && v !== 'port_map')
+          .filter(v => !existing.has(v) && v !== 'vlans' && v !== 'ports')
           .map((v): [string, string] => [v, ''])
         return [...current, ...newVars]
       })
@@ -197,15 +197,15 @@ function ProfileForm({
   // ── Port map helpers ──────────────────────────────────────────────────────────
 
   function generatePorts() {
-    setPortMap(Array.from({ length: portCount }, (_, i) => ({
-      port:        i + 1,
-      description: '',
-      mode:        'access' as PortMode,
-      vlan:        vlans[0]?.[0] ?? '',
+    setPortMap(Array.from({ length: portCount }, (_, i): PortRow => ({
+      port:          String(i + 1),
+      native_vlan:   vlans[0]?.id ?? 1,
+      allowed_vlans: '',
+      description:   '',
     })))
   }
 
-  function updatePort(i: number, patch: Partial<PortEntry>) {
+  function updatePort(i: number, patch: Partial<PortRow>) {
     setPortMap(pm => pm.map((p, j) => j === i ? { ...p, ...patch } : p))
   }
 
@@ -349,8 +349,8 @@ function ProfileForm({
             {tab === 'ports' && (
               <div className="space-y-3">
                 <p className="text-xs text-muted-foreground">
-                  Map each port to a VLAN and mode. Stored as <code className="font-mono bg-muted px-1 rounded">port_map</code> — iterate
-                  with <code className="font-mono bg-muted px-1 rounded">{"{% for p in port_map %}"}</code> in your template.
+                  Map each port's native VLAN and optional allowed VLANs. Stored as <code className="font-mono bg-muted px-1 rounded">ports</code> — iterate
+                  with <code className="font-mono bg-muted px-1 rounded">{"{% for p in ports %}"}</code> in your template.
                   Port naming (e.g. <code className="font-mono bg-muted px-1 rounded">GigabitEthernet1/0/{"{{ p.port }}"}</code>) is handled by the template.
                 </p>
 
@@ -382,43 +382,42 @@ function ProfileForm({
                     <table className="w-full text-xs">
                       <thead>
                         <tr className="bg-muted/50 border-b">
-                          <th className="text-left px-3 py-2 font-medium text-muted-foreground w-12">Port</th>
+                          <th className="text-left px-3 py-2 font-medium text-muted-foreground w-14">Port</th>
+                          <th className="text-left px-3 py-2 font-medium text-muted-foreground w-24">Native VLAN</th>
+                          <th className="text-left px-3 py-2 font-medium text-muted-foreground">Allowed VLANs <span className="font-normal opacity-60">(optional)</span></th>
                           <th className="text-left px-3 py-2 font-medium text-muted-foreground">Description</th>
-                          <th className="text-left px-3 py-2 font-medium text-muted-foreground w-28">Mode</th>
-                          <th className="text-left px-3 py-2 font-medium text-muted-foreground w-28">VLAN</th>
                         </tr>
                       </thead>
                       <tbody>
                         {portMap.map((p, i) => (
-                          <tr key={p.port} className={`border-b last:border-0 ${i % 2 === 0 ? '' : 'bg-muted/20'}`}>
+                          <tr key={i} className={`border-b last:border-0 ${i % 2 === 0 ? '' : 'bg-muted/20'}`}>
                             <td className="px-3 py-1 font-mono text-muted-foreground">{p.port}</td>
                             <td className="px-3 py-1">
-                              <input value={p.description}
-                                onChange={e => updatePort(i, { description: e.target.value })}
-                                placeholder="e.g. AP-01"
-                                className="w-full border rounded px-2 py-0.5 bg-background focus:outline-none focus:ring-1 focus:ring-primary/50" />
-                            </td>
-                            <td className="px-3 py-1">
-                              <select value={p.mode} onChange={e => updatePort(i, { mode: e.target.value as PortMode })}
-                                className="w-full border rounded px-2 py-0.5 bg-background focus:outline-none focus:ring-1 focus:ring-primary/50">
-                                {MODE_OPTS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
-                              </select>
-                            </td>
-                            <td className="px-3 py-1">
                               {vlans.length > 0 ? (
-                                <select value={p.vlan} onChange={e => updatePort(i, { vlan: e.target.value })}
+                                <select value={p.native_vlan}
+                                  onChange={(e: { target: { value: string } }) => updatePort(i, { native_vlan: Number(e.target.value) })}
                                   className="w-full border rounded px-2 py-0.5 bg-background focus:outline-none focus:ring-1 focus:ring-primary/50">
-                                  <option value="">—</option>
-                                  {vlans.filter(([n]) => n.trim()).map(([n, id]) => (
-                                    <option key={n} value={n}>{n} ({id})</option>
+                                  {vlans.filter((v: VlanRow) => v.id).map((v: VlanRow) => (
+                                    <option key={v.id} value={v.id}>{v.name} ({v.id})</option>
                                   ))}
                                 </select>
                               ) : (
-                                <input value={p.vlan}
-                                  onChange={e => updatePort(i, { vlan: e.target.value })}
-                                  placeholder="VLAN name"
-                                  className="w-full border rounded px-2 py-0.5 bg-background font-mono focus:outline-none focus:ring-1 focus:ring-primary/50" />
+                                <input type="number" value={p.native_vlan}
+                                  onChange={(e: { target: { value: string } }) => updatePort(i, { native_vlan: Number(e.target.value) })}
+                                  className="w-20 border rounded px-2 py-0.5 bg-background font-mono focus:outline-none focus:ring-1 focus:ring-primary/50" />
                               )}
+                            </td>
+                            <td className="px-3 py-1">
+                              <input value={p.allowed_vlans}
+                                onChange={(e: { target: { value: string } }) => updatePort(i, { allowed_vlans: e.target.value })}
+                                placeholder="10,20,30 or 10-50"
+                                className="w-full border rounded px-2 py-0.5 bg-background font-mono focus:outline-none focus:ring-1 focus:ring-primary/50" />
+                            </td>
+                            <td className="px-3 py-1">
+                              <input value={p.description}
+                                onChange={(e: { target: { value: string } }) => updatePort(i, { description: e.target.value })}
+                                placeholder="e.g. AP-01"
+                                className="w-full border rounded px-2 py-0.5 bg-background focus:outline-none focus:ring-1 focus:ring-primary/50" />
                             </td>
                           </tr>
                         ))}
@@ -596,9 +595,8 @@ export default function ProfilesPage() {
               {visible.map((p, i) => {
                 const tmpl     = templates.find(t => t.id === p.template_id)
                 const customer = customers.find(c => c.id === p.customer_id)
-                const portCount = Array.isArray(p.variables?.port_map) ? (p.variables.port_map as unknown[]).length : 0
-                const vlanCount = p.variables?.vlans && typeof p.variables.vlans === 'object'
-                  ? Object.keys(p.variables.vlans as object).length : 0
+                const portCount = Array.isArray(p.variables?.ports) ? (p.variables.ports as unknown[]).length : 0
+                const vlanCount = Array.isArray(p.variables?.vlans) ? (p.variables.vlans as unknown[]).length : 0
                 return (
                   <tr key={p.id} onClick={() => setProfileForm(p)}
                     className={`cursor-pointer hover:bg-muted/40 transition-colors ${i % 2 === 0 ? '' : 'bg-muted/20'}`}>
