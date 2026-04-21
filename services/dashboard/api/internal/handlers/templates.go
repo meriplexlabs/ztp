@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	dbpkg "github.com/ztp/api/internal/db"
+	"github.com/ztp/api/internal/gitops"
 	"github.com/ztp/api/internal/models"
 )
 
@@ -68,6 +70,7 @@ func (h *TemplateHandler) Create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to create template: "+err.Error())
 		return
 	}
+	go gitops.CommitTemplate(context.Background(), h.pool, &t)
 	writeJSON(w, http.StatusCreated, t)
 }
 
@@ -91,6 +94,7 @@ func (h *TemplateHandler) Update(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to update template: "+err.Error())
 		return
 	}
+	go gitops.CommitTemplate(context.Background(), h.pool, &t)
 	writeJSON(w, http.StatusOK, t)
 }
 

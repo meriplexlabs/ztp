@@ -81,6 +81,71 @@ func CommitConfig(ctx context.Context, pool *pgxpool.Pool, device *models.Device
 	}
 }
 
+// CommitTemplate backs up a config template to the configured git repo.
+// Should be called in a goroutine — errors are logged, not returned.
+func CommitTemplate(ctx context.Context, pool *pgxpool.Pool, tmpl *models.ConfigTemplate) {
+	if dbpkg.GetSettingValue(ctx, pool, "git.backup_enabled") != "true" {
+		return
+	}
+	repoURL := dbpkg.GetSettingValue(ctx, pool, "git.backup_repo_url")
+	if repoURL == "" {
+		return
+	}
+	content := ""
+	if tmpl.Content != nil {
+		content = *tmpl.Content
+	} else {
+		return // file-backed templates live on disk, nothing to commit
+	}
+
+	branch := orDefault(dbpkg.GetSettingValue(ctx, pool, "git.backup_branch"), "main")
+	token  := dbpkg.GetSettingValue(ctx, pool, "git.backup_token")
+	name   := orDefault(dbpkg.GetSettingValue(ctx, pool, "git.backup_author_name"), "ZTP Server")
+	email  := orDefault(dbpkg.GetSettingValue(ctx, pool, "git.backup_author_email"), "ztp@localhost")
+
+	authURL := injectToken(repoURL, token)
+	if authURL == "" {
+		log.Warn().Str("url", repoURL).Msg("git backup: could not parse repo URL")
+		return
+	}
+
+	dir, err := os.MkdirTemp("", "ztp-git-template-*")
+	if err != nil {
+		log.Error().Err(err).Msg("git backup: mktemp failed")
+		return
+	}
+	defer os.RemoveAll(dir)
+
+	if err := runGit(dir, "clone", "--depth=1", "--single-branch", "--branch", branch, authURL, "."); err != nil {
+		runGit(dir, "init")
+		runGit(dir, "remote", "add", "origin", authURL)
+		runGit(dir, "checkout", "-b", branch)
+	}
+
+	tmplDir := filepath.Join(dir, "templates", sanitize(tmpl.Vendor), sanitize(tmpl.OSType))
+	if err := os.MkdirAll(tmplDir, 0o755); err != nil {
+		log.Error().Err(err).Msg("git backup: mkdir failed")
+		return
+	}
+	filename := sanitize(tmpl.Name) + ".cfg"
+	if err := os.WriteFile(filepath.Join(tmplDir, filename), []byte(content), 0o644); err != nil {
+		log.Error().Err(err).Msg("git backup: write failed")
+		return
+	}
+
+	runGit(dir, "config", "user.name", name)
+	runGit(dir, "config", "user.email", email)
+	runGit(dir, "add", "-A")
+
+	msg := fmt.Sprintf("backup: template %s/%s/%s %s", tmpl.Vendor, tmpl.OSType, tmpl.Name, time.Now().UTC().Format(time.RFC3339))
+	if err := runGit(dir, "commit", "-m", msg); err != nil {
+		return
+	}
+	if err := runGit(dir, "push", "origin", branch); err != nil {
+		log.Error().Err(err).Msg("git backup: push failed")
+	}
+}
+
 // CommitProfile backs up a device profile as JSON to the configured git repo.
 // Should be called in a goroutine — errors are logged, not returned.
 func CommitProfile(ctx context.Context, pool *pgxpool.Pool, profile *models.DeviceProfile) {
@@ -179,8 +244,12 @@ func SyncTemplates(ctx context.Context, pool *pgxpool.Pool) (int, error) {
 	}
 	defer os.RemoveAll(dir)
 
-	if err := runGit(dir, "clone", "--depth=1", "--single-branch", "--branch", branch, authURL, "."); err != nil {
+	if err := runGit(dir, "clone", "--branch", branch, authURL, "."); err != nil {
 		return 0, fmt.Errorf("clone failed: %w", err)
+	}
+	// If the repo is empty (no commits yet) there's nothing to sync
+	if err := runGit(dir, "rev-parse", "HEAD"); err != nil {
+		return 0, fmt.Errorf("repository is empty — push at least one commit with templates first")
 	}
 
 	scanDir := dir
