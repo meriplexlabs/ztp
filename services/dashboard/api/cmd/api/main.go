@@ -173,6 +173,7 @@ func main() {
 
 		// Events (syslog)
 		r.Get("/api/v1/events", eventH.List)
+		r.Get("/api/v1/events/sources", eventH.Sources)
 
 		// DHCP (Kea proxy)
 		r.Get("/api/v1/leases",       keaH.GetLeases)

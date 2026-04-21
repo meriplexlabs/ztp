@@ -97,14 +97,25 @@ func pingHost(ip string) bool {
 
 func pingDevices(ctx context.Context, pool *pgxpool.Pool, devices []models.Device, interval time.Duration) {
 	for _, d := range devices {
-		if d.ManagementIP == nil || *d.ManagementIP == "" {
-			continue
-		}
 		// Skip if already seen recently via PnP or syslog
 		if d.LastSeen != nil && time.Since(*d.LastSeen) < interval {
 			continue
 		}
-		ip := *d.ManagementIP
+
+		ip := ""
+		if d.ManagementIP != nil && *d.ManagementIP != "" {
+			ip = *d.ManagementIP
+		} else {
+			// Fall back to DHCP reservation IP
+			pool.QueryRow(ctx,
+				`SELECT ip_address::text FROM dhcp_reservations WHERE device_id = $1 LIMIT 1`,
+				d.ID,
+			).Scan(&ip)
+		}
+		if ip == "" {
+			continue
+		}
+
 		go func(deviceID string, ip string) {
 			if pingHost(ip) {
 				pool.Exec(ctx,

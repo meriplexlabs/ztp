@@ -268,16 +268,18 @@ func GetProfile(ctx context.Context, pool *pgxpool.Pool, id uuid.UUID) (*models.
 
 // ─── Syslog Events ────────────────────────────────────────────────────────────
 
-func ListEvents(ctx context.Context, pool *pgxpool.Pool, limit, offset int, sourceIP string) ([]models.SyslogEvent, error) {
+func ListEvents(ctx context.Context, pool *pgxpool.Pool, limit, offset int, deviceID string) ([]models.SyslogEvent, error) {
 	var rows pgx.Rows
 	var err error
-	if sourceIP != "" {
+	if deviceID != "" {
 		rows, err = pool.Query(ctx,
-			`SELECT id, device_id, source_ip::text, severity, facility, hostname, app_name, message, received_at
-			 FROM syslog_events
-			 WHERE source_ip = $3::inet
-			 ORDER BY received_at DESC
-			 LIMIT $1 OFFSET $2`, limit, offset, sourceIP)
+			`SELECT e.id, e.device_id, e.source_ip::text, e.severity, e.facility, e.hostname, e.app_name, e.message, e.received_at
+			 FROM syslog_events e
+			 WHERE e.device_id = $3::uuid
+			    OR e.source_ip = (SELECT management_ip FROM devices WHERE id = $3::uuid)
+			    OR e.source_ip IN (SELECT ip_address FROM dhcp_reservations WHERE device_id = $3::uuid)
+			 ORDER BY e.received_at DESC
+			 LIMIT $1 OFFSET $2`, limit, offset, deviceID)
 	} else {
 		rows, err = pool.Query(ctx,
 			`SELECT id, device_id, source_ip::text, severity, facility, hostname, app_name, message, received_at

@@ -16,7 +16,7 @@ const SEVERITY_COLORS: Record<number, string> = {
 }
 
 export default function EventsPage() {
-  const [sourceIP, setSourceIP] = useState('')
+  const [deviceID, setSourceIP] = useState('')
 
   const { data: devices } = useQuery<Device[]>({
     queryKey: ['devices'],
@@ -24,16 +24,13 @@ export default function EventsPage() {
   })
 
   const params = new URLSearchParams({ limit: '200' })
-  if (sourceIP) params.set('source_ip', sourceIP)
+  if (deviceID) params.set('device_id', deviceID)
 
   const { data: events, isLoading, error, refetch, isFetching } = useQuery<SyslogEvent[]>({
-    queryKey: ['events', sourceIP],
+    queryKey: ['events', deviceID],
     queryFn: () => api.get<SyslogEvent[]>(`/api/v1/events?${params}`),
     refetchInterval: 15_000,
   })
-
-  const deviceLabel = (d: Device) =>
-    d.hostname ?? d.serial ?? d.mac ?? d.id.slice(0, 8)
 
   return (
     <div className="p-6">
@@ -45,14 +42,14 @@ export default function EventsPage() {
         </div>
         <div className="flex items-center gap-3">
           <select
-            value={sourceIP}
+            value={deviceID}
             onChange={e => setSourceIP(e.target.value)}
             className="text-sm border rounded px-2 py-1 bg-background"
           >
             <option value="">All devices</option>
-            {devices?.filter(d => d.management_ip).map(d => (
-              <option key={d.id} value={d.management_ip!}>
-                {deviceLabel(d)} ({d.management_ip})
+            {devices?.map(d => (
+              <option key={d.id} value={d.id}>
+                {d.hostname ?? d.serial ?? d.mac ?? d.id.slice(0, 8)}
               </option>
             ))}
           </select>
