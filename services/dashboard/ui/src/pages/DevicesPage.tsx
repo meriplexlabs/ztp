@@ -324,7 +324,48 @@ function TerminalOverlay({ device, onClose }: { device: Device; onClose: () => v
   )
 }
 
-function DeviceDrawer({
+type DeviceModalTab = 'overview' | 'variables' | 'vlans' | 'ports' | 'config'
+
+interface VlanRow { id: number; name: string; description: string }
+interface PortRow { port: string; mode: 'access' | 'trunk'; vlan: number; description: string }
+
+interface VlanEntry extends VlanRow { fromProfile: boolean; overridden: boolean }
+interface PortEntry extends PortRow { fromProfile: boolean; overridden: boolean }
+
+function toVlans(v: unknown): VlanRow[] {
+  if (!Array.isArray(v)) return []
+  return v.map((r: Record<string, unknown>) => ({
+    id: Number(r.id ?? 0), name: String(r.name ?? ''), description: String(r.description ?? ''),
+  }))
+}
+function toPorts(v: unknown): PortRow[] {
+  if (!Array.isArray(v)) return []
+  return v.map((r: Record<string, unknown>) => ({
+    port: String(r.port ?? ''), mode: (r.mode === 'trunk' ? 'trunk' : 'access') as 'access' | 'trunk',
+    vlan: Number(r.vlan ?? 1), description: String(r.description ?? ''),
+  }))
+}
+
+function initVlans(profileVlans: VlanRow[], deviceVlans: VlanRow[]): VlanEntry[] {
+  const rows: VlanEntry[] = profileVlans.map(pv => {
+    const override = deviceVlans.find(dv => dv.id === pv.id)
+    return { ...(override ?? pv), fromProfile: true, overridden: !!override }
+  })
+  deviceVlans.filter(dv => !profileVlans.some(pv => pv.id === dv.id))
+    .forEach(dv => rows.push({ ...dv, fromProfile: false, overridden: false }))
+  return rows
+}
+function initPorts(profilePorts: PortRow[], devicePorts: PortRow[]): PortEntry[] {
+  const rows: PortEntry[] = profilePorts.map(pp => {
+    const override = devicePorts.find(dp => dp.port === pp.port)
+    return { ...(override ?? pp), fromProfile: true, overridden: !!override }
+  })
+  devicePorts.filter(dp => !profilePorts.some(pp => pp.port === dp.port))
+    .forEach(dp => rows.push({ ...dp, fromProfile: false, overridden: false }))
+  return rows
+}
+
+function DeviceModal({
   device,
   profiles,
   leases,
@@ -340,6 +381,7 @@ function DeviceDrawer({
   onDiff: (d: Device) => void
 }) {
   const qc = useQueryClient()
+  const [tab,          setTab]          = useState<DeviceModalTab>('overview')
   const [hostname,     setHostname]     = useState(device.hostname ?? '')
   const [description,  setDescription]  = useState(device.description ?? '')
   const [profileId,    setProfileId]    = useState(device.profile_id ?? '')
@@ -347,343 +389,470 @@ function DeviceDrawer({
   const [vars, setVars] = useState<[string, string][]>(
     Object.entries(device.variables ?? {}).map(([k, v]) => [k, String(v)])
   )
-  const [firmwareVersion,   setFirmwareVersion]   = useState(device.firmware_version ?? null)
-  const [firmwareCheckedAt, setFirmwareCheckedAt] = useState(device.firmware_checked_at ?? null)
+  const [firmwareVersion,    setFirmwareVersion]    = useState(device.firmware_version ?? null)
+  const [firmwareCheckedAt,  setFirmwareCheckedAt]  = useState(device.firmware_checked_at ?? null)
   const [refreshingFirmware, setRefreshingFirmware] = useState(false)
-  const [error,       setError]       = useState<string | null>(null)
   const [downloading,        setDownloading]        = useState(false)
   const [downloadingRunning, setDownloadingRunning] = useState(false)
+  const [pushing,            setPushing]            = useState(false)
+  const [pushResult,         setPushResult]         = useState<{ success: boolean; output: string } | null>(null)
+  const [error,              setError]              = useState<string | null>(null)
 
   const lease = leases.find(l =>
     (device.hostname && l.hostname === device.hostname) ||
     (device.mac && l.hw_address === device.mac)
   )
+  const profile = profiles.find(p => p.id === (profileId || device.profile_id))
+
+  const profileVlans = toVlans(profile?.variables?.vlans)
+  const profilePorts = toPorts(profile?.variables?.ports)
+  const [vlans, setVlans] = useState<VlanEntry[]>(() =>
+    initVlans(toVlans(profile?.variables?.vlans), toVlans(device.variables?.vlans))
+  )
+  const [ports, setPorts] = useState<PortEntry[]>(() =>
+    initPorts(toPorts(profile?.variables?.ports), toPorts(device.variables?.ports))
+  )
 
   const save = useMutation({
-    mutationFn: (body: Partial<Device>) =>
-      api.put<Device>(`/api/v1/devices/${device.id}`, body),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['devices'] })
-      onClose()
-    },
+    mutationFn: (body: Partial<Device>) => api.put<Device>(`/api/v1/devices/${device.id}`, body),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['devices'] }); onClose() },
     onError: (e: Error) => setError(e.message),
   })
 
   const del = useMutation({
     mutationFn: () => api.delete(`/api/v1/devices/${device.id}`),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['devices'] })
-      onClose()
-    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['devices'] }); onClose() },
     onError: (e: Error) => setError(e.message),
   })
 
   function handleSave() {
     setError(null)
-    const variables = Object.fromEntries(vars.filter(([k]) => k.trim() !== ''))
-    save.mutate({
-      ...device,
-      hostname:      hostname      || undefined,
-      description:   description   || undefined,
-      profile_id:    profileId     || undefined,
-      management_ip: managementIp  || undefined,
-      variables,
-    })
-  }
-
-  async function handleDownload() {
-    setDownloading(true)
-    setError(null)
-    try {
-      const name = device.hostname ?? device.serial ?? device.id
-      await downloadConfig(device.id, name)
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Download failed')
-    } finally {
-      setDownloading(false)
-    }
+    const variables: Record<string, unknown> = Object.fromEntries(vars.filter(([k]) => k.trim() !== ''))
+    // Only save device-level vlan/port rows (overrides + new)
+    const deviceVlans = vlans.filter(v => !v.fromProfile || v.overridden)
+      .map(({ id, name, description }) => ({ id, name, description }))
+    const devicePorts = ports.filter(p => !p.fromProfile || p.overridden)
+      .map(({ port, mode, vlan, description }) => ({ port, mode, vlan, description }))
+    if (deviceVlans.length > 0) variables.vlans = deviceVlans
+    if (devicePorts.length > 0) variables.ports = devicePorts
+    save.mutate({ ...device, hostname: hostname || undefined, description: description || undefined,
+      profile_id: profileId || undefined, management_ip: managementIp || undefined, variables })
   }
 
   async function handleRefreshFirmware() {
-    setRefreshingFirmware(true)
-    setError(null)
+    setRefreshingFirmware(true); setError(null)
     try {
       const res = await api.post<{ firmware_version: string }>(`/api/v1/devices/${device.id}/firmware-version`, {})
       setFirmwareVersion(res.firmware_version)
       setFirmwareCheckedAt(new Date().toISOString())
       qc.invalidateQueries({ queryKey: ['devices'] })
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Firmware check failed')
-    } finally {
-      setRefreshingFirmware(false)
-    }
+    } catch (e: unknown) { setError(e instanceof Error ? e.message : 'Firmware check failed') }
+    finally { setRefreshingFirmware(false) }
+  }
+
+  async function handleDownload() {
+    setDownloading(true); setError(null)
+    try { await downloadConfig(device.id, device.hostname ?? device.serial ?? device.id) }
+    catch (e: unknown) { setError(e instanceof Error ? e.message : 'Download failed') }
+    finally { setDownloading(false) }
   }
 
   async function handleDownloadRunning() {
-    setDownloadingRunning(true)
-    setError(null)
-    try {
-      const name = device.hostname ?? device.serial ?? device.id
-      await downloadRunningConfig(device.id, name)
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to pull running config')
-    } finally {
-      setDownloadingRunning(false)
-    }
+    setDownloadingRunning(true); setError(null)
+    try { await downloadRunningConfig(device.id, device.hostname ?? device.serial ?? device.id) }
+    catch (e: unknown) { setError(e instanceof Error ? e.message : 'Failed to pull running config') }
+    finally { setDownloadingRunning(false) }
   }
 
-  function addVar()              { setVars(v => [...v, ['', '']]) }
-  function removeVar(i: number)  { setVars(v => v.filter((_, j) => j !== i)) }
-  function setVarKey(i: number, k: string) {
-    setVars(v => v.map((pair, j) => j === i ? [k, pair[1]] : pair))
+  async function handlePush() {
+    if (!confirm('Replace the running config with the rendered config?')) return
+    setPushing(true); setError(null); setPushResult(null)
+    try {
+      const res = await api.post<{ success: boolean; output: string }>(`/api/v1/devices/${device.id}/push-config`, {})
+      setPushResult(res)
+    } catch (e: unknown) {
+      setPushResult({ success: false, output: e instanceof Error ? e.message : 'Push failed' })
+    } finally { setPushing(false) }
   }
-  function setVarVal(i: number, val: string) {
-    setVars(v => v.map((pair, j) => j === i ? [pair[0], val] : pair))
-  }
+
+  function addVar()             { setVars(v => [...v, ['', '']]) }
+  function removeVar(i: number) { setVars(v => v.filter((_, j) => j !== i)) }
+  function setVarKey(i: number, k: string) { setVars(v => v.map((p, j) => j === i ? [k, p[1]] : p)) }
+  function setVarVal(i: number, val: string) { setVars(v => v.map((p, j) => j === i ? [p[0], val] : p)) }
+
+  const TABS: { id: DeviceModalTab; label: string }[] = [
+    { id: 'overview',  label: 'Overview'  },
+    { id: 'variables', label: 'Variables' },
+    { id: 'vlans',     label: 'VLANs'     },
+    { id: 'ports',     label: 'Ports'     },
+    { id: 'config',    label: 'Config'    },
+  ]
 
   return (
     <>
-      <div className="fixed inset-0 bg-black/30 z-40" onClick={onClose} />
+      <div className="fixed inset-0 bg-black/40 z-40" onClick={onClose} />
+      <div className="fixed inset-0 flex items-center justify-center z-50 p-4">
+        <div className="bg-background border rounded-xl shadow-2xl w-full max-w-3xl flex flex-col max-h-[85vh]">
 
-      <div className="fixed right-0 top-0 h-full w-[440px] bg-background border-l shadow-xl z-50 flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b">
-          <div>
-            <p className="font-semibold text-sm">{device.hostname ?? device.serial ?? device.mac ?? device.id}</p>
-            {device.description && (
-              <p className="text-xs text-muted-foreground">{device.description}</p>
-            )}
-          </div>
-          <button onClick={onClose} className="p-1.5 rounded hover:bg-accent">
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
-          {/* Read-only info */}
-          <div className="grid grid-cols-2 gap-3 text-sm">
+          {/* Header */}
+          <div className="flex items-center justify-between px-5 py-4 border-b shrink-0">
             <div>
-              <p className="text-xs text-muted-foreground mb-1">Serial</p>
-              <p className="font-mono text-xs">{device.serial ?? '—'}</p>
+              <p className="font-semibold text-sm">{device.hostname ?? device.serial ?? device.mac ?? device.id}</p>
+              {device.description && <p className="text-xs text-muted-foreground">{device.description}</p>}
             </div>
-            <div>
-              <p className="text-xs text-muted-foreground mb-1">MAC</p>
-              <p className="font-mono text-xs">{device.mac ?? lease?.hw_address ?? '—'}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground mb-1">Management IP</p>
-              <p className="font-mono text-xs font-medium text-primary">
-                {lease?.ip_address ?? device.management_ip ?? '—'}
-                {!lease?.ip_address && device.management_ip && (
-                  <span className="ml-1.5 text-[10px] font-sans font-normal text-muted-foreground">static</span>
-                )}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground mb-1">Status</p>
-              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[device.status]}`}>
-                {STATUS_LABELS[device.status]}
-              </span>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground mb-1">Vendor</p>
-              <p className="text-xs">{device.vendor_class ? (VENDOR_DISPLAY[device.vendor_class] ?? device.vendor_class) : '—'}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground mb-1">ZTP Method</p>
-              <p className="text-xs">{device.vendor_class ? (ZTP_METHOD[device.vendor_class] ?? '—') : '—'}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground mb-1">Last Seen</p>
-              <p className="text-xs">{device.last_seen ? formatRelative(device.last_seen) : '—'}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground mb-1">Provisioned</p>
-              <p className="text-xs">{device.provisioned_at ? formatRelative(device.provisioned_at) : '—'}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground mb-1">Firmware Version</p>
-              <div className="flex items-center gap-1.5">
-                <Cpu className="h-3 w-3 text-muted-foreground shrink-0" />
-                <span className="text-xs font-mono">{firmwareVersion ?? '—'}</span>
-              </div>
-              {firmwareCheckedAt && (
-                <p className="text-xs text-muted-foreground mt-0.5">checked {formatRelative(firmwareCheckedAt)}</p>
+            <div className="flex items-center gap-2">
+              {(lease?.ip_address || device.management_ip) && (
+                <button onClick={() => { onClose(); onTerminal(device) }}
+                  title="Open terminal"
+                  className="p-1.5 rounded border border-green-600 text-green-700 hover:bg-green-50">
+                  <Terminal className="h-4 w-4" />
+                </button>
               )}
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground mb-1"> </p>
-              <button
-                onClick={handleRefreshFirmware}
-                disabled={refreshingFirmware || !lease?.ip_address}
-                title={lease?.ip_address ? 'Refresh firmware version via SSH' : 'No management IP available'}
-                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground disabled:opacity-40"
-              >
-                <RefreshCw className={`h-3 w-3 ${refreshingFirmware ? 'animate-spin' : ''}`} />
-                {refreshingFirmware ? 'Checking…' : 'Refresh'}
+              <button onClick={onClose} className="p-1.5 rounded hover:bg-accent">
+                <X className="h-4 w-4" />
               </button>
             </div>
-            {device.profile_id && (
-              <div>
-                <p className="text-xs text-muted-foreground mb-1">Deployed Config</p>
-                <button
-                  onClick={handleDownload}
-                  disabled={downloading}
-                  className="text-xs text-primary hover:underline disabled:opacity-50 flex items-center gap-1"
-                >
-                  <Download className="h-3 w-3" />
-                  {downloading ? 'Downloading…' : 'Download'}
-                </button>
+          </div>
+
+          {/* Tabs */}
+          <div className="flex border-b shrink-0 px-5">
+            {TABS.map(t => (
+              <button key={t.id} onClick={() => setTab(t.id)}
+                className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                  tab === t.id
+                    ? 'border-primary text-primary'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
+                }`}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Body */}
+          <div className="flex-1 overflow-y-auto px-5 py-5">
+
+            {/* ── Overview ── */}
+            {tab === 'overview' && (
+              <div className="space-y-5">
+                <div className="grid grid-cols-3 gap-4 text-sm">
+                  {[
+                    ['Serial',      device.serial ?? '—',                              'font-mono text-xs'],
+                    ['MAC',         device.mac ?? lease?.hw_address ?? '—',            'font-mono text-xs'],
+                    ['IP',          lease?.ip_address ?? device.management_ip ?? '—',  'font-mono text-xs font-medium text-primary'],
+                    ['Status',      null,                                               ''],
+                    ['Vendor',      device.vendor_class ? (VENDOR_DISPLAY[device.vendor_class] ?? device.vendor_class) : '—', 'text-xs'],
+                    ['ZTP Method',  device.vendor_class ? (ZTP_METHOD[device.vendor_class] ?? '—') : '—', 'text-xs'],
+                    ['Last Seen',   device.last_seen ? formatRelative(device.last_seen) : '—',         'text-xs'],
+                    ['Provisioned', device.provisioned_at ? formatRelative(device.provisioned_at) : '—', 'text-xs'],
+                  ].map(([label, val, cls]) => (
+                    <div key={label as string}>
+                      <p className="text-xs text-muted-foreground mb-1">{label as string}</p>
+                      {label === 'Status'
+                        ? <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[device.status]}`}>{STATUS_LABELS[device.status]}</span>
+                        : <p className={cls as string}>{val as string}</p>
+                      }
+                    </div>
+                  ))}
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Firmware</p>
+                    <div className="flex items-center gap-1.5">
+                      <Cpu className="h-3 w-3 text-muted-foreground shrink-0" />
+                      <span className="text-xs font-mono">{firmwareVersion ?? '—'}</span>
+                      {profile?.firmware_version && firmwareVersion && profile.firmware_version !== firmwareVersion && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium">
+                          target: {profile.firmware_version}
+                        </span>
+                      )}
+                    </div>
+                    {firmwareCheckedAt && <p className="text-[10px] text-muted-foreground mt-0.5">checked {formatRelative(firmwareCheckedAt)}</p>}
+                    <button onClick={handleRefreshFirmware} disabled={refreshingFirmware}
+                      className="mt-1 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground disabled:opacity-40">
+                      <RefreshCw className={`h-3 w-3 ${refreshingFirmware ? 'animate-spin' : ''}`} />
+                      {refreshingFirmware ? 'Checking…' : 'Refresh'}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="border-t pt-4 grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground mb-1">Hostname</label>
+                    <input value={hostname} onChange={e => setHostname(e.target.value)} placeholder="sw-core-01"
+                      className="w-full text-sm border rounded px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/50" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground mb-1">Model / Description</label>
+                    <input value={description} onChange={e => setDescription(e.target.value)} placeholder="EX2300-24P"
+                      className="w-full text-sm border rounded px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/50" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground mb-1">Profile</label>
+                    <select value={profileId} onChange={e => setProfileId(e.target.value)}
+                      className="w-full text-sm border rounded px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/50">
+                      <option value="">— No profile —</option>
+                      {profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground mb-1">
+                      Management IP <span className="font-normal text-muted-foreground/60">(optional)</span>
+                    </label>
+                    <input value={managementIp} onChange={e => setManagementIp(e.target.value)} placeholder="10.0.0.50"
+                      className="w-full text-sm font-mono border rounded px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/50" />
+                  </div>
+                </div>
               </div>
             )}
-            <div>
-              <p className="text-xs text-muted-foreground mb-1">Running Config</p>
-              <button
-                onClick={handleDownloadRunning}
-                disabled={downloadingRunning}
-                className="text-xs text-primary hover:underline disabled:opacity-50 flex items-center gap-1"
-              >
-                <Download className="h-3 w-3" />
-                {downloadingRunning ? 'Pulling…' : 'Download'}
-              </button>
-            </div>
-            {device.profile_id && (
+
+            {/* ── Variables ── */}
+            {tab === 'variables' && (
               <div>
-                <p className="text-xs text-muted-foreground mb-1">Config Diff</p>
-                <button
-                  onClick={() => { onClose(); onDiff(device) }}
-                  className="text-xs text-primary hover:underline flex items-center gap-1"
-                >
-                  <GitCompare className="h-3 w-3" />
-                  View diff
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Hostname */}
-          <div>
-            <label className="block text-xs font-medium text-muted-foreground mb-1">Hostname</label>
-            <input
-              type="text"
-              value={hostname}
-              onChange={e => setHostname(e.target.value)}
-              placeholder="e.g. sw-core-01"
-              className="w-full text-sm border rounded px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/50"
-            />
-          </div>
-
-          {/* Model / Description */}
-          <div>
-            <label className="block text-xs font-medium text-muted-foreground mb-1">Model / Description</label>
-            <input
-              type="text"
-              value={description}
-              onChange={e => setDescription(e.target.value)}
-              placeholder="e.g. EX2300-24P"
-              className="w-full text-sm border rounded px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/50"
-            />
-          </div>
-
-          {/* Profile */}
-          <div>
-            <label className="block text-xs font-medium text-muted-foreground mb-1">Profile</label>
-            <select
-              value={profileId}
-              onChange={e => setProfileId(e.target.value)}
-              className="w-full text-sm border rounded px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/50"
-            >
-              <option value="">— No profile —</option>
-              {profiles.map(p => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Management IP */}
-          <div>
-            <label className="block text-xs font-medium text-muted-foreground mb-1">
-              Management IP <span className="font-normal text-muted-foreground/60">(optional — overridden by DHCP lease)</span>
-            </label>
-            <input
-              type="text"
-              value={managementIp}
-              onChange={e => setManagementIp(e.target.value)}
-              placeholder="e.g. 10.0.0.50"
-              className="w-full text-sm font-mono border rounded px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/50"
-            />
-          </div>
-
-          {/* Variables */}
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="text-xs font-medium text-muted-foreground">Variables</label>
-              <button
-                onClick={addVar}
-                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-              >
-                <Plus className="h-3 w-3" /> Add
-              </button>
-            </div>
-            <div className="space-y-2">
-              {vars.map(([k, v], i) => (
-                <div key={i} className="flex gap-2 items-center">
-                  <input
-                    type="text"
-                    value={k}
-                    onChange={e => setVarKey(i, e.target.value)}
-                    placeholder="key"
-                    className="flex-1 text-xs border rounded px-2 py-1.5 bg-background font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
-                  />
-                  <input
-                    type="text"
-                    value={v}
-                    onChange={e => setVarVal(i, e.target.value)}
-                    placeholder="value"
-                    className="flex-1 text-xs border rounded px-2 py-1.5 bg-background font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
-                  />
-                  <button onClick={() => removeVar(i)} className="text-muted-foreground hover:text-destructive">
-                    <X className="h-3.5 w-3.5" />
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-xs text-muted-foreground">Device-level variables override profile variables.</p>
+                  <button onClick={addVar}
+                    className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded border hover:bg-accent">
+                    <Plus className="h-3 w-3" /> Add variable
                   </button>
                 </div>
-              ))}
-              {vars.length === 0 && (
-                <p className="text-xs text-muted-foreground">No variables set</p>
-              )}
-            </div>
+                {vars.length === 0 && (
+                  <p className="text-sm text-muted-foreground text-center py-8">No variables set.</p>
+                )}
+                <div className="space-y-2">
+                  {vars.map(([k, v], i) => (
+                    <div key={i} className="flex gap-2 items-center">
+                      <input value={k} onChange={e => setVarKey(i, e.target.value)} placeholder="key"
+                        className="w-48 text-sm border rounded px-3 py-1.5 bg-background font-mono focus:outline-none focus:ring-1 focus:ring-primary/50" />
+                      <input value={v} onChange={e => setVarVal(i, e.target.value)} placeholder="value"
+                        className="flex-1 text-sm border rounded px-3 py-1.5 bg-background font-mono focus:outline-none focus:ring-1 focus:ring-primary/50" />
+                      <button onClick={() => removeVar(i)} className="text-muted-foreground hover:text-destructive shrink-0">
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ── VLANs ── */}
+            {tab === 'vlans' && (
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-xs text-muted-foreground">
+                    Profile VLANs shown greyed-out. Check Override to edit in-place.
+                  </p>
+                  <button
+                    onClick={() => setVlans(v => [...v, { id: 0, name: '', description: '', fromProfile: false, overridden: false }])}
+                    className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded border hover:bg-accent">
+                    <Plus className="h-3 w-3" /> Add VLAN
+                  </button>
+                </div>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-xs text-muted-foreground border-b">
+                      <th className="text-left pb-2 w-8">OVR</th>
+                      <th className="text-left pb-2 w-20">ID</th>
+                      <th className="text-left pb-2">Name</th>
+                      <th className="text-left pb-2">Description</th>
+                      <th className="w-8" />
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {vlans.map((v, i) => {
+                      const disabled = v.fromProfile && !v.overridden
+                      return (
+                        <tr key={i} className={disabled ? 'opacity-40' : ''}>
+                          <td className="py-1.5 pr-2">
+                            {v.fromProfile && (
+                              <input type="checkbox" checked={v.overridden}
+                                onChange={e => {
+                                  const overriding = e.target.checked
+                                  setVlans(rows => rows.map((r, j) => {
+                                    if (j !== i) return r
+                                    if (!overriding) {
+                                      const orig = profileVlans.find(p => p.id === r.id)
+                                      return { ...r, ...(orig ?? {}), overridden: false }
+                                    }
+                                    return { ...r, overridden: true }
+                                  }))
+                                }}
+                                className="rounded cursor-pointer" />
+                            )}
+                          </td>
+                          <td className="py-1.5 pr-2">
+                            <input type="number" value={v.id} disabled={disabled}
+                              onChange={e => setVlans(rows => rows.map((r, j) => j === i ? { ...r, id: Number(e.target.value) } : r))}
+                              className="w-16 text-sm border rounded px-2 py-1 font-mono disabled:bg-transparent disabled:border-transparent focus:outline-none focus:ring-1 focus:ring-primary/50" />
+                          </td>
+                          <td className="py-1.5 pr-2">
+                            <input type="text" value={v.name} disabled={disabled} placeholder="Users"
+                              onChange={e => setVlans(rows => rows.map((r, j) => j === i ? { ...r, name: e.target.value } : r))}
+                              className="w-full text-sm border rounded px-2 py-1 disabled:bg-transparent disabled:border-transparent focus:outline-none focus:ring-1 focus:ring-primary/50" />
+                          </td>
+                          <td className="py-1.5 pr-2">
+                            <input type="text" value={v.description} disabled={disabled} placeholder="Optional"
+                              onChange={e => setVlans(rows => rows.map((r, j) => j === i ? { ...r, description: e.target.value } : r))}
+                              className="w-full text-sm border rounded px-2 py-1 disabled:bg-transparent disabled:border-transparent focus:outline-none focus:ring-1 focus:ring-primary/50" />
+                          </td>
+                          <td className="py-1.5">
+                            {!v.fromProfile && (
+                              <button onClick={() => setVlans(rows => rows.filter((_, j) => j !== i))}
+                                className="text-muted-foreground hover:text-destructive">
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+                {vlans.length === 0 && (
+                  <p className="text-sm text-muted-foreground text-center py-8">No VLANs defined in profile or device.</p>
+                )}
+              </div>
+            )}
+
+            {/* ── Ports ── */}
+            {tab === 'ports' && (
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-xs text-muted-foreground">
+                    Profile ports shown greyed-out. Check Override to edit in-place.
+                  </p>
+                  <button
+                    onClick={() => setPorts(p => [...p, { port: '', mode: 'access', vlan: 1, description: '', fromProfile: false, overridden: false }])}
+                    className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded border hover:bg-accent">
+                    <Plus className="h-3 w-3" /> Add Port
+                  </button>
+                </div>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-xs text-muted-foreground border-b">
+                      <th className="text-left pb-2 w-8">OVR</th>
+                      <th className="text-left pb-2">Port</th>
+                      <th className="text-left pb-2 w-28">Mode</th>
+                      <th className="text-left pb-2 w-20">VLAN</th>
+                      <th className="text-left pb-2">Description</th>
+                      <th className="w-8" />
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {ports.map((p, i) => {
+                      const disabled = p.fromProfile && !p.overridden
+                      return (
+                        <tr key={i} className={disabled ? 'opacity-40' : ''}>
+                          <td className="py-1.5 pr-2">
+                            {p.fromProfile && (
+                              <input type="checkbox" checked={p.overridden}
+                                onChange={e => {
+                                  const overriding = e.target.checked
+                                  setPorts(rows => rows.map((r, j) => {
+                                    if (j !== i) return r
+                                    if (!overriding) {
+                                      const orig = profilePorts.find(pp => pp.port === r.port)
+                                      return { ...r, ...(orig ?? {}), overridden: false }
+                                    }
+                                    return { ...r, overridden: true }
+                                  }))
+                                }}
+                                className="rounded cursor-pointer" />
+                            )}
+                          </td>
+                          <td className="py-1.5 pr-2">
+                            <input type="text" value={p.port} disabled={disabled} placeholder="ge-0/0/0"
+                              onChange={e => setPorts(rows => rows.map((r, j) => j === i ? { ...r, port: e.target.value } : r))}
+                              className="w-full text-sm border rounded px-2 py-1 font-mono disabled:bg-transparent disabled:border-transparent focus:outline-none focus:ring-1 focus:ring-primary/50" />
+                          </td>
+                          <td className="py-1.5 pr-2">
+                            <select value={p.mode} disabled={disabled}
+                              onChange={e => setPorts(rows => rows.map((r, j) => j === i ? { ...r, mode: e.target.value as 'access' | 'trunk' } : r))}
+                              className="w-full text-sm border rounded px-2 py-1 bg-background disabled:bg-transparent disabled:border-transparent focus:outline-none focus:ring-1 focus:ring-primary/50">
+                              <option value="access">Access</option>
+                              <option value="trunk">Trunk</option>
+                            </select>
+                          </td>
+                          <td className="py-1.5 pr-2">
+                            <input type="number" value={p.vlan} disabled={disabled}
+                              onChange={e => setPorts(rows => rows.map((r, j) => j === i ? { ...r, vlan: Number(e.target.value) } : r))}
+                              className="w-16 text-sm border rounded px-2 py-1 font-mono disabled:bg-transparent disabled:border-transparent focus:outline-none focus:ring-1 focus:ring-primary/50" />
+                          </td>
+                          <td className="py-1.5 pr-2">
+                            <input type="text" value={p.description} disabled={disabled} placeholder="Optional"
+                              onChange={e => setPorts(rows => rows.map((r, j) => j === i ? { ...r, description: e.target.value } : r))}
+                              className="w-full text-sm border rounded px-2 py-1 disabled:bg-transparent disabled:border-transparent focus:outline-none focus:ring-1 focus:ring-primary/50" />
+                          </td>
+                          <td className="py-1.5">
+                            {!p.fromProfile && (
+                              <button onClick={() => setPorts(rows => rows.filter((_, j) => j !== i))}
+                                className="text-muted-foreground hover:text-destructive">
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+                {ports.length === 0 && (
+                  <p className="text-sm text-muted-foreground text-center py-8">No ports defined in profile or device.</p>
+                )}
+              </div>
+            )}
+
+            {/* ── Config ── */}
+            {tab === 'config' && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <button onClick={handleDownload} disabled={downloading || !profileId}
+                    className="flex items-center justify-center gap-2 border rounded-lg p-4 hover:bg-accent disabled:opacity-40 text-sm">
+                    <Download className="h-4 w-4" />
+                    {downloading ? 'Downloading…' : 'Download Rendered Config'}
+                  </button>
+                  <button onClick={handleDownloadRunning} disabled={downloadingRunning}
+                    className="flex items-center justify-center gap-2 border rounded-lg p-4 hover:bg-accent disabled:opacity-40 text-sm">
+                    <Download className="h-4 w-4" />
+                    {downloadingRunning ? 'Pulling…' : 'Download Running Config'}
+                  </button>
+                  <button onClick={() => { onClose(); onDiff(device) }} disabled={!profileId}
+                    className="flex items-center justify-center gap-2 border rounded-lg p-4 hover:bg-accent disabled:opacity-40 text-sm">
+                    <GitCompare className="h-4 w-4" />
+                    View Config Diff
+                  </button>
+                  <button onClick={handlePush} disabled={pushing || !profileId}
+                    className="flex items-center justify-center gap-2 border border-amber-300 rounded-lg p-4 hover:bg-amber-50 disabled:opacity-40 text-sm text-amber-700">
+                    <GitCompare className="h-4 w-4" />
+                    {pushing ? 'Pushing…' : 'Push Config to Device'}
+                  </button>
+                </div>
+                {!profileId && (
+                  <p className="text-xs text-muted-foreground text-center">Assign a profile to enable config actions.</p>
+                )}
+                {pushResult && (
+                  <div className={`rounded-lg p-3 text-xs font-mono ${pushResult.success ? 'bg-green-950/20 text-green-700' : 'bg-red-950/20 text-red-700'}`}>
+                    <p className="font-semibold mb-1">{pushResult.success ? '✓ Push successful' : '✗ Push failed'}</p>
+                    <pre className="whitespace-pre-wrap">{pushResult.output}</pre>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {error && <p className="text-xs text-destructive mt-4">{error}</p>}
           </div>
 
-          {error && <p className="text-xs text-destructive">{error}</p>}
-        </div>
-
-        {/* Footer */}
-        <div className="border-t px-5 py-3 flex items-center justify-between shrink-0">
-          <button
-            onClick={() => { if (confirm('Delete this device?')) del.mutate() }}
-            disabled={del.isPending}
-            title="Delete device"
-            className="p-1.5 text-destructive hover:opacity-80 disabled:opacity-50 rounded hover:bg-destructive/10"
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
-          <div className="flex items-center gap-2">
-            {lease?.ip_address && (
-              <button
-                onClick={() => { onClose(); onTerminal(device) }}
-                title="Open terminal"
-                className="p-1.5 rounded border border-green-600 text-green-700 hover:bg-green-50"
-              >
-                <Terminal className="h-4 w-4" />
-              </button>
-            )}
-            <button
-              onClick={handleSave}
-              disabled={save.isPending}
-              className="text-sm px-4 py-1.5 rounded bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
-            >
-              {save.isPending ? 'Saving…' : 'Save'}
+          {/* Footer */}
+          <div className="border-t px-5 py-3 flex items-center justify-between shrink-0">
+            <button onClick={() => { if (confirm('Delete this device?')) del.mutate() }}
+              disabled={del.isPending}
+              className="p-1.5 text-destructive hover:opacity-80 disabled:opacity-50 rounded hover:bg-destructive/10">
+              <Trash2 className="h-4 w-4" />
             </button>
+            <div className="flex gap-2">
+              <button onClick={onClose} className="text-sm px-4 py-1.5 rounded border hover:bg-accent">Cancel</button>
+              <button onClick={handleSave} disabled={save.isPending}
+                className="text-sm px-4 py-1.5 rounded bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50">
+                {save.isPending ? 'Saving…' : 'Save'}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -1165,7 +1334,7 @@ export default function DevicesPage() {
       )}
 
       {selected && (
-        <DeviceDrawer
+        <DeviceModal
           device={selected}
           profiles={profiles}
           leases={leases}

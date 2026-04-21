@@ -115,7 +115,18 @@ func CommitProfile(ctx context.Context, pool *pgxpool.Pool, profile *models.Devi
 		runGit(dir, "checkout", "-b", branch)
 	}
 
-	profDir := filepath.Join(dir, "profiles")
+	// Resolve customer name for directory organisation
+	customerDir := "unassigned"
+	if profile.CustomerID != nil {
+		var customerName string
+		if err := pool.QueryRow(ctx,
+			`SELECT name FROM customers WHERE id = $1`, profile.CustomerID,
+		).Scan(&customerName); err == nil && customerName != "" {
+			customerDir = sanitize(customerName)
+		}
+	}
+
+	profDir := filepath.Join(dir, "profiles", customerDir)
 	if err := os.MkdirAll(profDir, 0o755); err != nil {
 		log.Error().Err(err).Msg("git backup: mkdir failed")
 		return
