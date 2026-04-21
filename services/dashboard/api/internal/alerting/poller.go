@@ -3,6 +3,7 @@ package alerting
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -22,18 +23,20 @@ func Run(ctx context.Context, pool *pgxpool.Pool, interval time.Duration) {
 		case <-ctx.Done():
 			return
 		case <-tick.C:
-			if err := evaluate(ctx, pool); err != nil {
+			devices, err := dbpkg.ListDevices(ctx, pool)
+			if err != nil {
+				log.Error().Err(err).Msg("Alert evaluation failed")
+				continue
+			}
+			go pingDevices(ctx, pool, devices, interval)
+			if err := evaluate(ctx, pool, devices); err != nil {
 				log.Error().Err(err).Msg("Alert evaluation failed")
 			}
 		}
 	}
 }
 
-func evaluate(ctx context.Context, pool *pgxpool.Pool) error {
-	devices, err := dbpkg.ListDevices(ctx, pool)
-	if err != nil {
-		return fmt.Errorf("list devices: %w", err)
-	}
+func evaluate(ctx context.Context, pool *pgxpool.Pool, devices []models.Device) error {
 	profiles, _ := dbpkg.ListProfiles(ctx, pool)
 
 	// Build profile map keyed by ID
@@ -83,6 +86,32 @@ func evaluate(ctx context.Context, pool *pgxpool.Pool) error {
 		}
 	}
 	return nil
+}
+
+func pingHost(ip string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	err := exec.CommandContext(ctx, "ping", "-c", "1", "-W", "2", ip).Run()
+	return err == nil
+}
+
+func pingDevices(ctx context.Context, pool *pgxpool.Pool, devices []models.Device, interval time.Duration) {
+	for _, d := range devices {
+		if d.ManagementIP == nil || *d.ManagementIP == "" {
+			continue
+		}
+		// Skip if already seen recently via PnP or syslog
+		if d.LastSeen != nil && time.Since(*d.LastSeen) < interval {
+			continue
+		}
+		ip := *d.ManagementIP
+		go func(deviceID string, ip string) {
+			if pingHost(ip) {
+				pool.Exec(ctx,
+					`UPDATE devices SET last_seen = NOW() WHERE id = $1`, deviceID)
+			}
+		}(d.ID.String(), ip)
+	}
 }
 
 func name(d models.Device) string {

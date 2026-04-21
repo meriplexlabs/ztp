@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
@@ -267,12 +268,23 @@ func GetProfile(ctx context.Context, pool *pgxpool.Pool, id uuid.UUID) (*models.
 
 // ─── Syslog Events ────────────────────────────────────────────────────────────
 
-func ListEvents(ctx context.Context, pool *pgxpool.Pool, limit, offset int) ([]models.SyslogEvent, error) {
-	rows, err := pool.Query(ctx,
-		`SELECT id, device_id, source_ip::text, severity, facility, hostname, app_name, message, received_at
-		 FROM syslog_events
-		 ORDER BY received_at DESC
-		 LIMIT $1 OFFSET $2`, limit, offset)
+func ListEvents(ctx context.Context, pool *pgxpool.Pool, limit, offset int, sourceIP string) ([]models.SyslogEvent, error) {
+	var rows pgx.Rows
+	var err error
+	if sourceIP != "" {
+		rows, err = pool.Query(ctx,
+			`SELECT id, device_id, source_ip::text, severity, facility, hostname, app_name, message, received_at
+			 FROM syslog_events
+			 WHERE source_ip = $3::inet
+			 ORDER BY received_at DESC
+			 LIMIT $1 OFFSET $2`, limit, offset, sourceIP)
+	} else {
+		rows, err = pool.Query(ctx,
+			`SELECT id, device_id, source_ip::text, severity, facility, hostname, app_name, message, received_at
+			 FROM syslog_events
+			 ORDER BY received_at DESC
+			 LIMIT $1 OFFSET $2`, limit, offset)
+	}
 	if err != nil {
 		return nil, err
 	}

@@ -17,12 +17,13 @@ func NewEventHandler(pool *pgxpool.Pool) *EventHandler {
 
 // List GET /api/v1/events
 func (h *EventHandler) List(w http.ResponseWriter, r *http.Request) {
-	limit  := queryInt(r, "limit", 100)
-	offset := queryInt(r, "offset", 0)
+	limit    := queryInt(r, "limit", 100)
+	offset   := queryInt(r, "offset", 0)
+	sourceIP := r.URL.Query().Get("source_ip")
 	if limit > 500 {
 		limit = 500
 	}
-	events, err := dbpkg.ListEvents(r.Context(), h.pool, limit, offset)
+	events, err := dbpkg.ListEvents(r.Context(), h.pool, limit, offset, sourceIP)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

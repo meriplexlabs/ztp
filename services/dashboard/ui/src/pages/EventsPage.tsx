@@ -1,5 +1,6 @@
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { api, type SyslogEvent, SEVERITY_LABELS } from '@/lib/api'
+import { api, type SyslogEvent, type Device, SEVERITY_LABELS } from '@/lib/api'
 import { formatDate } from '@/lib/utils'
 import { ScrollText, RefreshCw } from 'lucide-react'
 
@@ -15,11 +16,24 @@ const SEVERITY_COLORS: Record<number, string> = {
 }
 
 export default function EventsPage() {
+  const [sourceIP, setSourceIP] = useState('')
+
+  const { data: devices } = useQuery<Device[]>({
+    queryKey: ['devices'],
+    queryFn: () => api.get<Device[]>('/api/v1/devices'),
+  })
+
+  const params = new URLSearchParams({ limit: '200' })
+  if (sourceIP) params.set('source_ip', sourceIP)
+
   const { data: events, isLoading, error, refetch, isFetching } = useQuery<SyslogEvent[]>({
-    queryKey: ['events'],
-    queryFn: () => api.get<SyslogEvent[]>('/api/v1/events?limit=200'),
+    queryKey: ['events', sourceIP],
+    queryFn: () => api.get<SyslogEvent[]>(`/api/v1/events?${params}`),
     refetchInterval: 15_000,
   })
+
+  const deviceLabel = (d: Device) =>
+    d.hostname ?? d.serial ?? d.mac ?? d.id.slice(0, 8)
 
   return (
     <div className="p-6">
@@ -29,14 +43,28 @@ export default function EventsPage() {
           <h1 className="text-xl font-semibold">Syslog Events</h1>
           {events && <span className="text-sm text-muted-foreground">({events.length})</span>}
         </div>
-        <button
-          onClick={() => refetch()}
-          disabled={isFetching}
-          className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground disabled:opacity-50"
-        >
-          <RefreshCw className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
-          Refresh
-        </button>
+        <div className="flex items-center gap-3">
+          <select
+            value={sourceIP}
+            onChange={e => setSourceIP(e.target.value)}
+            className="text-sm border rounded px-2 py-1 bg-background"
+          >
+            <option value="">All devices</option>
+            {devices?.filter(d => d.management_ip).map(d => (
+              <option key={d.id} value={d.management_ip!}>
+                {deviceLabel(d)} ({d.management_ip})
+              </option>
+            ))}
+          </select>
+          <button
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground disabled:opacity-50"
+          >
+            <RefreshCw className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {isLoading && <div className="text-muted-foreground text-sm">Loading events…</div>}

@@ -146,6 +146,19 @@ func insertEvent(ctx context.Context, pool *pgxpool.Pool, msg SyslogMessage) {
 	}
 }
 
+func updateDeviceLastSeen(ctx context.Context, pool *pgxpool.Pool, sourceIP string) {
+	pool.Exec(ctx,
+		`UPDATE devices SET last_seen = NOW()
+		 WHERE id = (
+		     SELECT d.id FROM devices d
+		     JOIN dhcp_reservations r ON r.device_id = d.id
+		     WHERE r.ip_address = $1::inet
+		     LIMIT 1
+		 )`,
+		sourceIP,
+	)
+}
+
 func updateDeviceProvisioned(ctx context.Context, pool *pgxpool.Pool, sourceIP string) {
 	res, err := pool.Exec(ctx,
 		`UPDATE devices SET status = 'provisioned', provisioned_at = NOW()
@@ -188,6 +201,7 @@ func handleMessage(ctx context.Context, pool *pgxpool.Pool, data []byte, sourceI
 		Msg("syslog")
 
 	insertEvent(ctx, pool, msg)
+	updateDeviceLastSeen(ctx, pool, sourceIP)
 
 	if isProvisioningComplete(msg.Message) {
 		updateDeviceProvisioned(ctx, pool, sourceIP)
