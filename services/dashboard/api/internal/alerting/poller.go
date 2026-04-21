@@ -103,10 +103,12 @@ func pingDevices(ctx context.Context, pool *pgxpool.Pool, devices []models.Devic
 		}
 
 		ip := ""
-		if d.ManagementIP != nil && *d.ManagementIP != "" {
+		switch {
+		case d.ManagementIP != nil && *d.ManagementIP != "":
 			ip = *d.ManagementIP
-		} else {
-			// Fall back to DHCP reservation IP
+		case d.LastConnectionIP != nil && *d.LastConnectionIP != "":
+			ip = *d.LastConnectionIP
+		default:
 			pool.QueryRow(ctx,
 				`SELECT ip_address::text FROM dhcp_reservations WHERE device_id = $1 LIMIT 1`,
 				d.ID,

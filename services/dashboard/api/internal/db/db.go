@@ -96,7 +96,7 @@ func ListUsers(ctx context.Context, pool *pgxpool.Pool) ([]models.User, error) {
 func ListDevices(ctx context.Context, pool *pgxpool.Pool) ([]models.Device, error) {
 	rows, err := pool.Query(ctx,
 		`SELECT id, mac, serial, vendor_class, hostname, description,
-		        status, profile_id, variables, management_ip::text, last_seen, provisioned_at,
+		        status, profile_id, variables, management_ip::text, last_connection_ip::text, last_seen, provisioned_at,
 		        firmware_version, firmware_checked_at, created_at, updated_at
 		 FROM devices ORDER BY created_at DESC`)
 	if err != nil {
@@ -117,7 +117,7 @@ func ListDevices(ctx context.Context, pool *pgxpool.Pool) ([]models.Device, erro
 func GetDevice(ctx context.Context, pool *pgxpool.Pool, id uuid.UUID) (*models.Device, error) {
 	row := pool.QueryRow(ctx,
 		`SELECT id, mac, serial, vendor_class, hostname, description,
-		        status, profile_id, variables, management_ip::text, last_seen, provisioned_at,
+		        status, profile_id, variables, management_ip::text, last_connection_ip::text, last_seen, provisioned_at,
 		        firmware_version, firmware_checked_at, created_at, updated_at
 		 FROM devices WHERE id = $1`, id)
 	return scanDevice(row)
@@ -127,7 +127,7 @@ func GetDeviceByIdentifier(ctx context.Context, pool *pgxpool.Pool, identifier s
 	// Try serial first — avoids macaddr cast errors for non-MAC identifiers.
 	row := pool.QueryRow(ctx,
 		`SELECT id, mac, serial, vendor_class, hostname, description,
-		        status, profile_id, variables, management_ip::text, last_seen, provisioned_at,
+		        status, profile_id, variables, management_ip::text, last_connection_ip::text, last_seen, provisioned_at,
 		        firmware_version, firmware_checked_at, created_at, updated_at
 		 FROM devices WHERE serial = $1 LIMIT 1`, identifier)
 	d, err := scanDevice(row)
@@ -137,7 +137,7 @@ func GetDeviceByIdentifier(ctx context.Context, pool *pgxpool.Pool, identifier s
 	// Fall back to MAC lookup (only attempted when identifier looks like a MAC).
 	row = pool.QueryRow(ctx,
 		`SELECT id, mac, serial, vendor_class, hostname, description,
-		        status, profile_id, variables, management_ip::text, last_seen, provisioned_at,
+		        status, profile_id, variables, management_ip::text, last_connection_ip::text, last_seen, provisioned_at,
 		        firmware_version, firmware_checked_at, created_at, updated_at
 		 FROM devices WHERE mac::text = lower($1) LIMIT 1`, identifier)
 	return scanDevice(row)
@@ -152,7 +152,7 @@ func scanDevice(row scannable) (*models.Device, error) {
 	var variables []byte
 	err := row.Scan(
 		&d.ID, &d.MAC, &d.Serial, &d.VendorClass, &d.Hostname, &d.Description,
-		&d.Status, &d.ProfileID, &variables, &d.ManagementIP, &d.LastSeen, &d.ProvisionedAt,
+		&d.Status, &d.ProfileID, &variables, &d.ManagementIP, &d.LastConnectionIP, &d.LastSeen, &d.ProvisionedAt,
 		&d.FirmwareVersion, &d.FirmwareCheckedAt, &d.CreatedAt, &d.UpdatedAt,
 	)
 	if err != nil {
