@@ -25,6 +25,14 @@ import (
 func main() {
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339})
 
+	level := zerolog.InfoLevel
+	if lvl := os.Getenv("LOG_LEVEL"); lvl != "" {
+		if parsed, err := zerolog.ParseLevel(lvl); err == nil {
+			level = parsed
+		}
+	}
+	zerolog.SetGlobalLevel(level)
+
 	// Load config
 	conf, err := cfg.Load()
 	if err != nil {

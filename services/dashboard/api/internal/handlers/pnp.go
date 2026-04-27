@@ -55,7 +55,7 @@ func (h *PnPHandler) Hello(w http.ResponseWriter, r *http.Request) {
 	udi := parseRawUDI(bodyStr)
 	correlator := parseCorrelator(bodyStr)
 
-	log.Info().
+	log.Debug().
 		Str("method", r.Method).
 		Str("serial", serial).
 		Str("model", model).
@@ -127,7 +127,7 @@ func (h *PnPHandler) WorkRequest(w http.ResponseWriter, r *http.Request) {
 	}
 	bodyStr := string(body)
 
-	log.Info().
+	log.Debug().
 		Str("remote", r.RemoteAddr).
 		Str("body", bodyStr).
 		Msg("PnP WORK-REQUEST raw")
@@ -195,7 +195,7 @@ func (h *PnPHandler) handleWorkRequestForDevice(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	log.Info().Str("serial", serial).Msg("PnP: no profile assigned, sending bye")
+	log.Debug().Str("serial", serial).Msg("PnP: no profile assigned, sending bye")
 	fmt.Fprint(w, pnpByeResponse(udi, correlator))
 }
 
@@ -208,7 +208,7 @@ func (h *PnPHandler) WorkResponse(w http.ResponseWriter, r *http.Request) {
 	}
 	bodyStr := string(body)
 
-	log.Info().
+	log.Debug().
 		Str("remote", r.RemoteAddr).
 		Str("body", bodyStr).
 		Msg("PnP WORK-RESPONSE raw")
