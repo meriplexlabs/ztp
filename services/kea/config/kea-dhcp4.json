@@ -135,15 +135,26 @@
         ]
       },
 
-      // ── Aruba AOS-CX ─────────────────────────────────────────────────────────
-      // AOS-CX switches (6300M, 6400, 8400, etc.): option 60 starts with "Aruba"
-      // option 67 is set per-device by flex-option below, embedding the MAC:
-      //   http://<server>/aruba/<mac>/config
-      // AOS-CX treats an http:// option 67 as an HTTP fetch (not TFTP).
+      // ── Aruba AOS-CX / HP ProCurve ───────────────────────────────────────────
+      // AOS-CX (6300M, 6400, etc.): option 60 starts with "Aruba"
+      // HP ProCurve (legacy): option 60 starts with "HP "
+      //
+      // Config delivery is TFTP only — Aruba Central is required for HTTP ZTP.
+      // The base config sets credentials + SSH so the device can be reached
+      // after discovery. Full config is pushed from the dashboard.
       {
         "name": "vendor-aruba",
-        "test": "substring(option[60].hex, 0, 5) == 'Aruba'",
-        "option-data": []
+        "test": "substring(option[60].hex, 0, 5) == 'Aruba' or substring(option[60].hex, 0, 3) == 'HP '",
+        "option-data": [
+          {
+            "name": "tftp-server-name",
+            "data": "${ZTP_SERVER_IP}"
+          },
+          {
+            "name": "boot-file-name",
+            "data": "aruba/base.cfg"
+          }
+        ]
       },
 
       // ── Extreme Networks ──────────────────────────────────────────────────────
@@ -239,7 +250,7 @@
           "options": [
             {
               "code": 67,
-              "add": "ifelse(substring(option[60].hex, 0, 7) == 'Juniper', concat(concat('juniper/', lcase(option[12].hex)), '/config'), ifelse(substring(option[60].hex, 0, 5) == 'Aruba', concat(concat('http://${ZTP_SERVER_IP}/aruba/', hexstring(pkt4.mac, ':')), '/config'), ''))"
+              "add": "ifelse(substring(option[60].hex, 0, 7) == 'Juniper', concat(concat('juniper/', lcase(option[12].hex)), '/config'), '')"
             }
           ]
         }
