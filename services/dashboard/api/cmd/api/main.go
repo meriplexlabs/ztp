@@ -92,10 +92,9 @@ func main() {
 	// Router
 	r := chi.NewRouter()
 
-	// Global middleware
+	// Global middleware (applied to all routes)
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
-	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(60 * time.Second))
 	r.Use(cors.Handler(cors.Options{
@@ -105,43 +104,41 @@ func main() {
 		AllowCredentials: true,
 	}))
 
-	// Health check (unauthenticated)
+	// ─── Silent routes (no request logger — high-frequency device polling) ──────
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"status":"ok"}`))
 	})
-
-	// ─── Auth routes (unauthenticated) ─────────────────────────────────────────
-	r.Route("/api/v1/auth", func(r chi.Router) {
-		r.Get("/info",            authH.AuthInfo)
-		r.Post("/login",          authH.LocalLogin)
-		r.Get("/oidc/redirect",   authH.OIDCRedirect)
-		r.Get("/oidc/callback",   authH.OIDCCallback)
-	})
-
-	// ─── ZTP config endpoint (unauthenticated — called by devices) ─────────────
-	r.Get("/api/v1/config/{identifier}", deviceH.ZTPConfig)
-
-	// ─── Device terminal (token auth via query param — opened in browser window) ─
-	r.Get("/api/v1/devices/{id}/terminal",    terminalH.ServeHTML)
-	r.Get("/api/v1/devices/{id}/terminal/ws", terminalH.ServeWS)
-
-	// ─── Juniper ZTP (unauthenticated — called by devices) ─────────────────────
-	r.Get("/juniper/{serial}/config", juniperH.ZTPConfig)
-
-	// ─── Aruba/HP ZTP (unauthenticated — called by devices) ─────────────────────
-	r.Get("/aruba/{mac}/config", arubaH.ZTPConfig)
-
-	// ─── Cisco PnP (unauthenticated — called by devices) ───────────────────────
 	r.Get("/pnp/HELLO", pnpH.Hello)
 	r.Post("/pnp/HELLO", pnpH.Hello)
 	r.Put("/pnp/HELLO", pnpH.Hello)
 	r.Post("/pnp/WORK-REQUEST", pnpH.WorkRequest)
 	r.Post("/pnp/WORK-RESPONSE", pnpH.WorkResponse)
 
-	// ─── Protected API routes ───────────────────────────────────────────────────
+	// ─── Logged routes ──────────────────────────────────────────────────────────
 	r.Group(func(r chi.Router) {
-		r.Use(handlers.JWTMiddleware(conf.JWTSecret))
+		r.Use(middleware.Logger)
+
+		// Auth (unauthenticated)
+		r.Route("/api/v1/auth", func(r chi.Router) {
+			r.Get("/info",          authH.AuthInfo)
+			r.Post("/login",        authH.LocalLogin)
+			r.Get("/oidc/redirect", authH.OIDCRedirect)
+			r.Get("/oidc/callback", authH.OIDCCallback)
+		})
+
+		// ZTP config endpoints (unauthenticated — called by devices)
+		r.Get("/api/v1/config/{identifier}", deviceH.ZTPConfig)
+		r.Get("/juniper/{serial}/config",    juniperH.ZTPConfig)
+		r.Get("/aruba/{mac}/config",         arubaH.ZTPConfig)
+
+		// Device terminal (token auth via query param)
+		r.Get("/api/v1/devices/{id}/terminal",    terminalH.ServeHTML)
+		r.Get("/api/v1/devices/{id}/terminal/ws", terminalH.ServeWS)
+
+		// ─── Protected API routes ───────────────────────────────────────────────
+		r.Group(func(r chi.Router) {
+			r.Use(handlers.JWTMiddleware(conf.JWTSecret))
 
 		r.Get("/api/v1/auth/me",     authH.Me)
 		r.Post("/api/v1/auth/logout", authH.Logout)
@@ -211,7 +208,8 @@ func main() {
 			r.Put("/api/v1/settings/{key}", settingsH.Update)
 			r.Get("/api/v1/users", authH.ListUsers)
 		})
-	})
+		}) // end protected group
+	}) // end logged group
 
 	// Start server
 	server := &http.Server{
