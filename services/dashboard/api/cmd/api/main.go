@@ -122,7 +122,7 @@ func main() {
 	r.Get("/juniper/{serial}/config", juniperH.ZTPConfig)
 
 	// ─── Aruba/HP ZTP (unauthenticated — called by devices) ─────────────────────
-	r.Get("/aruba/config", arubaH.ZTPConfig)
+	r.Get("/aruba/{mac}/config", arubaH.ZTPConfig)
 
 	// ─── Cisco PnP (unauthenticated — called by devices) ───────────────────────
 	r.Get("/pnp/HELLO", pnpH.Hello)
